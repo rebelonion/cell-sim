@@ -1,13 +1,10 @@
 #pragma once
 
 #include <cmath>
-#include <stdexcept>
 #include <vector>
 
 #include "raylib.h"
-//    Shader shader = LoadShaderFromMemory(vertexShader, fragmentShader);
-//Shader shader = LoadShader("../data/shaders/lighting.vs",
-//                               "../data/shaders/lighting.fs");
+
 class MeshGenerator {
 public:
     static Vector3 Vector3Cross(Vector3 v1, Vector3 v2) {
@@ -250,7 +247,7 @@ public:
 
         mesh.indices[indexCount++] = 8;
         mesh.indices[indexCount++] = 7;
-        mesh.indices[indexCount++] = 5;
+        mesh.indices[indexCount] = 5;
 
         std::vector<Vector3> normalSum(vertices.size(), {0, 0, 0});
         std::vector<int> normalCount(vertices.size(), 0);
@@ -304,7 +301,7 @@ public:
             mesh.normals[i * 3 + 1] = avgNormal.y;
             mesh.normals[i * 3 + 2] = avgNormal.z;
 
-            // Set default texture coordinates (can be modified as needed)
+            // Set default texture coordinates
             mesh.texcoords[i * 2] = 0.0f;
             mesh.texcoords[i * 2 + 1] = 0.0f;
 
