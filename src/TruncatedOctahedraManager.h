@@ -6,7 +6,6 @@
 
 #include "raylib.h"
 #include "raymath.h"
-#include "PoolAllocator.h"
 #include "SpatialGrid.h"
 
 struct TransformData {
@@ -176,7 +175,6 @@ private:
     Model baseModel;
     Material material;
     std::mt19937 gen;
-    PoolAllocator<Matrix> matrixPool{};
 
     const float SPAWN_CHANCE = 0.8f;
     const float SQUARE_DISTANCE = 2.0f * 2.828f;
