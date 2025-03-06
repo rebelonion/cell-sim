@@ -52,9 +52,7 @@ FetchContent_MakeAvailable(raylib)
 add_executable(${PROJECT_NAME} src/main.cpp
         src/MeshGenerator.h
         src/rlights.h
-        src/aligned_allocator.h
-        src/PoolAllocator.h
-        src/SpatialGrid.h
+        src/OctahedronGrid.h
         src/TruncatedOctahedraManager.h)
 add_subdirectory(src)
 
