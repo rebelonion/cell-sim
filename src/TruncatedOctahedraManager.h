@@ -3,10 +3,13 @@
 #include <vector>
 #include <random>
 #include <execution>
+#include <mutex>
+#include <numeric>
+#include <unordered_map>
 
 #include "raylib.h"
 #include "raymath.h"
-#include "SpatialGrid.h"
+#include "OctahedronGrid.h"
 
 struct TransformData {
     std::vector<float> positions_x;
@@ -35,19 +38,28 @@ struct TransformData {
             positions_z[index]
         );
     }
+    
+    [[nodiscard]] Vector3 getPosition(const size_t index) const {
+        return {
+            positions_x[index],
+            positions_y[index],
+            positions_z[index]
+        };
+    }
 };
 
 class TruncatedOctahedraManager {
 public:
     TruncatedOctahedraManager(const Model &model, const Material &mat)
-        : baseModel(model), material(mat), gen(std::random_device()()) {
+        : baseModel(model), material(mat),
+          gen(std::random_device()()) {
         transforms.reserve(2000000);
         constexpr Vector3 center = {0.0f, 2.0f, 0.0f};
         addOctahedron(center);
     }
 
     void addOctahedron(const Vector3 &pos) {
-        if (!grid.isPositionOccupied(pos)) {
+        if (!grid.isOccupied(pos)) {
             const size_t index = transforms.size();
             transforms.add(pos);
             grid.insert(pos, index);
@@ -59,37 +71,27 @@ public:
     }
 
     [[nodiscard]] std::vector<Vector3> getAvailableNeighborPositions(const Vector3 &pos) const {
-        std::vector<Vector3> available;
-        available.reserve(14); // 6 square + 8 hexagon positions
-
-        // Square faces
-        Vector3 squareDirections[] = {
-            {1, 0, 0}, {-1, 0, 0}, {0, 1, 0},
-            {0, -1, 0}, {0, 0, 1}, {0, 0, -1}
-        };
-
-        for (const auto &dir: squareDirections) {
-            if (Vector3 newPos = Vector3Add(pos, Vector3Scale(dir, SQUARE_DISTANCE)); !grid.
-                isPositionOccupied(newPos)) {
-                available.push_back(newPos);
-            }
+        // Use the grid's optimized neighbor calculation with statistics
+        auto result = grid.getAvailableNeighborsWithStats(pos);
+        
+        // Update availability statistics (logically const)
+        const_cast<TruncatedOctahedraManager*>(this)->totalSquareFacesAvailable += result.squareFaces;
+        const_cast<TruncatedOctahedraManager*>(this)->totalHexagonFacesAvailable += result.hexagonFaces;
+        
+        return result.positions;
+    }
+    
+    // Get all occupied neighbor cells
+    [[nodiscard]] std::vector<size_t> getNeighborCellIndices(const Vector3 &pos) const {
+        auto neighbors = grid.getOccupiedNeighbors(pos);
+        std::vector<size_t> indices;
+        indices.reserve(neighbors.size());
+        
+        for (const auto& neighbor : neighbors) {
+            indices.push_back(neighbor.cellIndex);
         }
-
-        // Hexagonal faces
-        constexpr float s = 0.577350269f;
-        Vector3 hexDirections[] = {
-            {s, s, s}, {-s, s, s}, {s, -s, s}, {s, s, -s},
-            {-s, -s, s}, {-s, s, -s}, {s, -s, -s}, {-s, -s, -s}
-        };
-
-        for (const auto &dir: hexDirections) {
-            if (Vector3 newPos = Vector3Add(pos, Vector3Scale(dir, HEXAGON_DISTANCE)); !grid.
-                isPositionOccupied(newPos)) {
-                available.push_back(newPos);
-            }
-        }
-
-        return available;
+        
+        return indices;
     }
 
     void draw() const {
@@ -108,6 +110,24 @@ public:
 
     [[nodiscard]] size_t getCount() const {
         return transforms.size();
+    }
+
+    // Get count of cells with specific number of neighbors (for UI display)
+    [[nodiscard]] std::unordered_map<int, int> getNeighborStats() const {
+        std::unordered_map<int, int> neighborCounts;
+
+        for (size_t i = 0; i < transforms.size(); i++) {
+            Vector3 pos = transforms.getPosition(i);
+            int neighborCount = grid.getOccupiedNeighbors(pos).size();
+            neighborCounts[neighborCount]++;
+        }
+
+        return neighborCounts;
+    }
+    
+    // Get hash table statistics for performance monitoring
+    [[nodiscard]] std::tuple<size_t, size_t, size_t, double> getHashStats() const {
+        return grid.getHashStats();
     }
 
     void trySpawningNewOctahedra(const float deltaTime) {
@@ -146,16 +166,34 @@ public:
             spawnIndices.begin(), spawnIndices.end(),
             [&](size_t idx) {
                 thread_local std::mt19937 localGen(std::random_device{}());
-
-                Vector3 currentPos = {
-                    transforms.positions_x[idx],
-                    transforms.positions_y[idx],
-                    transforms.positions_z[idx]
-                };
+                Vector3 currentPos = transforms.getPosition(idx);
 
                 if (const auto available = getAvailableNeighborPositions(currentPos); !available.empty()) {
                     std::uniform_int_distribution<> posDis(0, available.size() - 1);
                     const Vector3 newPos = available[posDis(localGen)];
+                    
+                    // Determine if this is a square or hexagon face placement
+                    bool isSquareFace = false;
+                    
+                    // Check if it's a square face (only one coordinate differs)
+                    float dx = std::abs(newPos.x - currentPos.x);
+                    float dy = std::abs(newPos.y - currentPos.y);
+                    float dz = std::abs(newPos.z - currentPos.z);
+                    
+                    if ((dx > 0 && dy < 0.1f && dz < 0.1f) ||
+                        (dx < 0.1f && dy > 0 && dz < 0.1f) ||
+                        (dx < 0.1f && dy < 0.1f && dz > 0)) {
+                        isSquareFace = true;
+                    }
+                    
+                    // Update statistics
+                    if (isSquareFace) {
+                        std::lock_guard lock(positionsMutex);
+                        squareFacePlacements++;
+                    } else {
+                        std::lock_guard lock(positionsMutex);
+                        hexagonFacePlacements++;
+                    }
 
                     std::lock_guard lock(positionsMutex);
                     newPositions.push_back(newPos);
@@ -171,12 +209,38 @@ public:
 
 private:
     TransformData transforms;
-    SpatialGrid grid;
+    OctahedronGrid grid;
     Model baseModel;
     Material material;
     std::mt19937 gen;
+    
+    // Statistics for debugging
+    size_t squareFacePlacements = 0;
+    size_t hexagonFacePlacements = 0;
+    
+    // Availability statistics
+    size_t totalSquareFacesAvailable = 0;
+    size_t totalHexagonFacesAvailable = 0;
 
     const float SPAWN_CHANCE = 0.8f;
-    const float SQUARE_DISTANCE = 2.0f * 2.828f;
-    const float HEXAGON_DISTANCE = 1.732f * 2.828f;
+    
+public:
+    // For debugging - get statistics about which face types are used for placement
+    [[nodiscard]] std::pair<size_t, size_t> getPlacementStats() const {
+        return {squareFacePlacements, hexagonFacePlacements};
+    }
+    
+    // Get availability statistics
+    [[nodiscard]] std::pair<size_t, size_t> getAvailabilityStats() const {
+        return {totalSquareFacesAvailable, totalHexagonFacesAvailable};
+    }
+    
+    // Reset all statistics
+    void resetPlacementStats() {
+        squareFacePlacements = 0;
+        hexagonFacePlacements = 0;
+        totalSquareFacesAvailable = 0;
+        totalHexagonFacesAvailable = 0;
+    }
+private:
 };
