@@ -6,6 +6,7 @@
 #include <mutex>
 #include <numeric>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "raylib.h"
 #include "raymath.h"
@@ -104,6 +105,7 @@ public:
         return indices;
     }
 
+    // Update visibility for all cells (full scan)
     void updateVisibility() {
         // Using parallelized execution for better performance
         std::vector<size_t> indices(transforms.size());
@@ -113,30 +115,126 @@ public:
             std::execution::par_unseq,
             indices.begin(), indices.end(),
             [&](size_t idx) {
-                Vector3 pos = transforms.getPosition(idx);
-                auto neighbors = grid.getOccupiedNeighbors(pos);
-                
-                // Cell is invisible if it has all 14 neighbors
-                bool isVisible = neighbors.size() < 14;
-                transforms.setVisibility(idx, isVisible);
+                updateCellVisibility(idx);
             }
         );
+    }
+    
+    // Update visibility of a single cell by index
+    void updateCellVisibility(size_t idx) {
+        Vector3 pos = transforms.getPosition(idx);
+        auto neighbors = grid.getOccupiedNeighbors(pos);
+        
+        // Cell is invisible if it has all 14 neighbors
+        bool isVisible = neighbors.size() < 14;
+        transforms.setVisibility(idx, isVisible);
+    }
+    
+    // Optimized visibility update only for cells that might have changed
+    void updateVisibilityForNewCells(const std::vector<Vector3>& newPositions) {
+        // Limit number of positions processed at once to prevent freezing
+        // For large batches, this prevents us from using too much memory at once
+        const size_t MAX_BATCH_SIZE = 1000;
+        
+        for (size_t startIdx = 0; startIdx < newPositions.size(); startIdx += MAX_BATCH_SIZE) {
+            // Calculate the actual batch size
+            size_t batchSize = std::min(MAX_BATCH_SIZE, newPositions.size() - startIdx);
+            
+            // Process the positions in the current batch
+            for (size_t i = 0; i < batchSize; i++) {
+                const auto& pos = newPositions[startIdx + i];
+                size_t idx = grid.findCellIndex(pos);
+                if (idx != SIZE_MAX) {
+                    updateCellVisibility(idx);
+                }
+            }
+            
+            // Process neighbors of the current batch
+            std::unordered_set<size_t> processedNeighbors; // Use set for fast duplicate checking
+            processedNeighbors.reserve(batchSize * 14);
+            
+            for (size_t i = 0; i < batchSize; i++) {
+                const auto& pos = newPositions[startIdx + i];
+                auto neighborPositions = grid.getNeighborPositions(pos);
+                
+                for (const auto& neighborPos : neighborPositions) {
+                    if (grid.isOccupied(neighborPos)) {
+                        size_t neighborIdx = grid.findCellIndex(neighborPos);
+                        if (neighborIdx != SIZE_MAX) {
+                            processedNeighbors.insert(neighborIdx);
+                        }
+                    }
+                }
+            }
+            
+            // Convert set to vector for parallel processing
+            std::vector<size_t> neighborIndices(processedNeighbors.begin(), processedNeighbors.end());
+            
+            // Update neighbor cells in parallel, if any
+            if (!neighborIndices.empty()) {
+                std::for_each(
+                    std::execution::par_unseq,
+                    neighborIndices.begin(), neighborIndices.end(),
+                    [&](size_t idx) {
+                        updateCellVisibility(idx);
+                    }
+                );
+            }
+        }
     }
     
     void draw() const {
         if (transforms.size() == 0) return;
 
-        // Create temporary array of matrices for rendering only visible cells
-        std::vector<Matrix> renderMatrices;
-        renderMatrices.reserve(transforms.size());
-
+        // For very large simulations, limit the max batch size to prevent memory issues
+        const size_t MAX_BATCH_SIZE = 100000;
+        
+        // Count visible cells first
+        size_t visibleCount = 0;
         for (size_t i = 0; i < transforms.size(); i++) {
             if (transforms.isVisible(i)) {
-                renderMatrices.push_back(transforms.getTransform(i));
+                visibleCount++;
             }
         }
-
-        DrawMeshInstanced(baseModel.meshes[0], material, renderMatrices.data(), renderMatrices.size());
+        
+        // For small numbers of cells, use a single batch
+        if (visibleCount <= MAX_BATCH_SIZE) {
+            std::vector<Matrix> renderMatrices;
+            renderMatrices.reserve(visibleCount);
+            
+            for (size_t i = 0; i < transforms.size(); i++) {
+                if (transforms.isVisible(i)) {
+                    renderMatrices.push_back(transforms.getTransform(i));
+                }
+            }
+            
+            DrawMeshInstanced(baseModel.meshes[0], material, renderMatrices.data(), renderMatrices.size());
+        }
+        // For very large numbers of cells, split into batches
+        else {
+            std::vector<Matrix> renderMatrices;
+            renderMatrices.reserve(MAX_BATCH_SIZE);
+            size_t batchCount = 0;
+            
+            for (size_t i = 0; i < transforms.size(); i++) {
+                if (transforms.isVisible(i)) {
+                    renderMatrices.push_back(transforms.getTransform(i));
+                    batchCount++;
+                    
+                    // Draw the current batch if it's full
+                    if (batchCount >= MAX_BATCH_SIZE) {
+                        DrawMeshInstanced(baseModel.meshes[0], material, renderMatrices.data(), renderMatrices.size());
+                        renderMatrices.clear();
+                        batchCount = 0;
+                    }
+                }
+            }
+            
+            // Draw any remaining cells
+            if (!renderMatrices.empty()) {
+                DrawMeshInstanced(baseModel.meshes[0], material, renderMatrices.data(), renderMatrices.size());
+            }
+        }
     }
 
     [[nodiscard]] size_t getCount() const {
@@ -235,6 +333,13 @@ public:
         // Batch add all new octahedra
         for (const auto &newPos: newPositions) {
             addOctahedron(newPos);
+        }
+        
+        // Use optimized visibility update for new cells only
+        if (!newPositions.empty()) {
+            // Only update visibility for new cells and their neighbors
+            // This is much more efficient than updating all cells
+            updateVisibilityForNewCells(newPositions);
         }
     }
 

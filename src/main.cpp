@@ -210,11 +210,23 @@ int main() {
         // Toggle cell spawning
         if (IsKeyPressed(KEY_SPACE)) genNewOctahedra = !genNewOctahedra;
         if (genNewOctahedra) {
+            // The visibility updates are now handled inside trySpawningNewOctahedra
+            // using a much more efficient targeted approach
             octaManager.trySpawningNewOctahedra(deltaTime);
             
-            // Update visibility after adding new cells
-            // Only update when we spawn new cells to avoid unnecessary calculations
-            octaManager.updateVisibility();
+            // Run a full visibility update very infrequently for large simulations to avoid freezing
+            // Scale frequency based on number of cells
+            size_t cellCount = octaManager.getCount();
+            int updateFrequency = 60; // Default: once per second at 60 FPS
+            
+            // Scale update frequency based on cell count
+            if (cellCount > 100000) updateFrequency = 300;      // ~5 seconds
+            if (cellCount > 500000) updateFrequency = 600;      // ~10 seconds
+            if (cellCount > 1000000) updateFrequency = 1200;    // ~20 seconds
+            
+            if (debugStats.frameCounter % updateFrequency == 0) {
+                octaManager.updateVisibility();
+            }
         }
         
         // Toggle debug info display

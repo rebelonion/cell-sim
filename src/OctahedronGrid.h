@@ -181,6 +181,22 @@ public:
         return neighbors;
     }
     
+    // Find a cell index by its position
+    [[nodiscard]] size_t findCellIndex(const Vector3& worldPos) const {
+        auto hashIndex = positionToHashIndex(worldPos);
+        const auto& bucket = spatialHash[hashIndex];
+        
+        if (bucket.empty()) return SIZE_MAX; // Not found, using SIZE_MAX as sentinel
+        
+        for (const auto& cell : bucket) {
+            if (Vector3Distance(cell.position, worldPos) < POSITION_EPSILON) {
+                return cell.cellIndex;
+            }
+        }
+        
+        return SIZE_MAX; // Not found
+    }
+
     // Get hash table statistics for performance monitoring
     [[nodiscard]] std::tuple<size_t, size_t, size_t, double> getHashStats() const {
         size_t nonEmptyBuckets = 0;
