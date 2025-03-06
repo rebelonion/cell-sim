@@ -53,7 +53,9 @@ add_executable(${PROJECT_NAME} src/main.cpp
         src/MeshGenerator.h
         src/rlights.h
         src/OctahedronGrid.h
-        src/TruncatedOctahedraManager.h)
+        src/TruncatedOctahedraManager.h
+        src/BoundaryManager.h
+)
 add_subdirectory(src)
 
 set_target_properties(${PROJECT_NAME} PROPERTIES

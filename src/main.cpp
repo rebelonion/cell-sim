@@ -6,6 +6,7 @@
 #include "raymath.h"
 #include "MeshGenerator.h"
 #include "TruncatedOctahedraManager.h"
+#include "BoundaryManager.h"
 #define RLIGHTS_IMPLEMENTATION
 #include "rlights.h"
 
@@ -15,7 +16,6 @@
 #define GLSL_VERSION            100
 #endif
 
-// Structure to hold debug statistics
 struct DebugStats {
     int frameCounter = 0;
     std::unordered_map<int, int> neighborStats;
@@ -25,7 +25,6 @@ struct DebugStats {
     std::tuple<size_t, size_t, size_t, double> hashStats;
 };
 
-// Function to draw debug information
 void DrawDebugInfo(const TruncatedOctahedraManager& octaManager, bool genNewOctahedra, DebugStats& stats) {
     // Update statistics every 60 frames to avoid performance impact
     if (stats.frameCounter++ % 60 == 0) {
@@ -36,31 +35,36 @@ void DrawDebugInfo(const TruncatedOctahedraManager& octaManager, bool genNewOcta
         stats.hashStats = octaManager.getHashStats();
     }
 
-    // Basic information always displayed
     DrawFPS(10, 10);
     DrawText(TextFormat("Octahedra: %zu", octaManager.getCount()), 10, 30, 20, BLACK);
-    if (genNewOctahedra) {
-        DrawText("Generating new octahedra...", 10, 50, 20, GREEN);
+    if (octaManager.isGenerationActive()) {
+        DrawText("Generating new octahedra (background)...", 10, 50, 20, GREEN);
     } else {
-        DrawText("Press SPACE to generate new octahedra", 10, 50, 20, DARKGRAY);
+        DrawText("Press SPACE to toggle generation", 10, 50, 20, DARKGRAY);
     }
-    // Display hash table statistics to monitor performance
+    
+    // Show boundary constraint status
+    if (octaManager.isBoundaryEnabled()) {
+        DrawText("Boundary constraint: ENABLED", 10, 70, 20, GREEN);
+    } else {
+        DrawText("Boundary constraint: DISABLED", 10, 70, 20, GRAY);
+    }
+
     size_t nonEmptyBuckets = std::get<0>(stats.hashStats);
     size_t maxBucketSize = std::get<1>(stats.hashStats);
     size_t totalItems = std::get<2>(stats.hashStats);
     double avgBucketSize = std::get<3>(stats.hashStats);
-    
-    Color hashColor = maxBucketSize > 20 ? RED : DARKBLUE; // Warn if buckets getting too large
-    
+
+    Color hashColor = maxBucketSize > 20 ? RED : DARKBLUE;
+
     DrawText("Hash Table Stats:", 300, 80, 20, BLACK);
-    DrawText(TextFormat("Cells: %zu | Buckets: %zu/%zu", 
+    DrawText(TextFormat("Cells: %zu | Buckets: %zu/%zu",
                 totalItems, nonEmptyBuckets, OctahedronGrid::HASH_TABLE_SIZE),
              300, 100, 18, DARKBLUE);
-    DrawText(TextFormat("Avg bucket: %.2f | Max bucket: %zu", 
+    DrawText(TextFormat("Avg bucket: %.2f | Max bucket: %zu",
                 avgBucketSize, maxBucketSize),
              300, 120, 18, hashColor);
 
-    // Display placement statistics
     size_t totalPlacements = stats.placementStats.first + stats.placementStats.second;
     float squarePercent = totalPlacements > 0 ?
                          100.0f * static_cast<float>(stats.placementStats.first) / static_cast<float>(totalPlacements) : 0.0f;
@@ -73,7 +77,6 @@ void DrawDebugInfo(const TruncatedOctahedraManager& octaManager, bool genNewOcta
     DrawText(TextFormat("Hexagon faces: %zu (%.1f%%)", stats.placementStats.second, hexagonPercent),
              10, 180, 18, DARKBLUE);
 
-    // Display availability statistics
     size_t totalAvailable = stats.availabilityStats.first + stats.availabilityStats.second;
     float squareAvailPercent = totalAvailable > 0 ?
                               100.0f * static_cast<float>(stats.availabilityStats.first) / static_cast<float>(totalAvailable) : 0.0f;
@@ -85,21 +88,19 @@ void DrawDebugInfo(const TruncatedOctahedraManager& octaManager, bool genNewOcta
              10, 220, 18, MAROON);
     DrawText(TextFormat("Hexagon faces available: %zu (%.1f%%)", stats.availabilityStats.second, hexagonAvailPercent),
              10, 240, 18, MAROON);
-             
-    // Display visibility statistics
+
     size_t totalCells = stats.visibilityStats.first + stats.visibilityStats.second;
     float visiblePercent = totalCells > 0 ?
                           100.0f * static_cast<float>(stats.visibilityStats.first) / static_cast<float>(totalCells) : 0.0f;
     float hiddenPercent = totalCells > 0 ?
                          100.0f * static_cast<float>(stats.visibilityStats.second) / static_cast<float>(totalCells) : 0.0f;
-                         
+
     DrawText("Visibility Statistics:", 300, 140, 20, BLACK);
     DrawText(TextFormat("Visible cells: %zu (%.1f%%)", stats.visibilityStats.first, visiblePercent),
              300, 160, 18, GREEN);
     DrawText(TextFormat("Hidden cells: %zu (%.1f%%)", stats.visibilityStats.second, hiddenPercent),
              300, 180, 18, RED);
 
-    // Display neighbor statistics
     DrawText("Neighbor Statistics:", 10, 270, 20, BLACK);
     int yPos = 290;
     for (int i = 0; i <= 14; i++) {
@@ -110,15 +111,20 @@ void DrawDebugInfo(const TruncatedOctahedraManager& octaManager, bool genNewOcta
         }
     }
 
-    // UI instructions
     DrawText("Press 1-5 to resize grid (1=64³, 2=128³, 3=256³, 4=384³, 5=512³)",
-             10, GetScreenHeight() - 70, 18, DARKGRAY);
-    DrawText("Press R to reset placement statistics",
-             10, GetScreenHeight() - 50, 18, DARKGRAY);
+             10, GetScreenHeight() - 140, 18, DARKGRAY);
+    DrawText("Press R to reset entire simulation",
+             10, GetScreenHeight() - 120, 18, DARKGRAY);
     DrawText("Press D to toggle debug information",
-             10, GetScreenHeight() - 30, 18, DARKGRAY);
+             10, GetScreenHeight() - 100, 18, DARKGRAY);
     DrawText("Press V to update visibility calculations",
-             10, GetScreenHeight() - 10, 18, DARKGRAY);
+             10, GetScreenHeight() - 80, 18, DARKGRAY);
+    DrawText("Press B to toggle boundary visibility",
+             10, GetScreenHeight() - 60, 18, DARKGRAY);
+    DrawText("Press N to generate a new random boundary",
+             10, GetScreenHeight() - 40, 18, DARKGRAY);
+    DrawText("Press E to toggle boundary constraint (enable/disable)",
+             10, GetScreenHeight() - 20, 18, DARKGRAY);
 }
 
 int main() {
@@ -158,7 +164,6 @@ int main() {
     camera.fovy = 45.0f;
     camera.projection = CAMERA_PERSPECTIVE;
 
-    // Create instancing-compatible material
     Material material = LoadMaterialDefault();
     material.shader = shader;
     material.maps[MATERIAL_MAP_DIFFUSE].color = WHITE;
@@ -173,12 +178,12 @@ int main() {
     model.materials[0] = material;
 
     TruncatedOctahedraManager octaManager(model, material);
+    // The TruncatedOctahedraManager now creates its own BoundaryManager internally
 
     const float LIGHT_ROTATION_SPEED = 0.5f;
 
-    bool genNewOctahedra = false;
-    bool showDebugInfo = true;  // Toggle for debug information display
-    DebugStats debugStats;      // Stats for debug display
+    bool showDebugInfo = true;
+    DebugStats debugStats;
 
     SetTargetFPS(60);
     while (!WindowShouldClose()) {
@@ -207,34 +212,51 @@ int main() {
             -lightRadius * sinf(rotationAngle - PI / 2)
         };
 
-        // Toggle cell spawning
-        if (IsKeyPressed(KEY_SPACE)) genNewOctahedra = !genNewOctahedra;
-        if (genNewOctahedra) {
-            // The visibility updates are now handled inside trySpawningNewOctahedra
-            // using a much more efficient targeted approach
-            octaManager.trySpawningNewOctahedra(deltaTime);
-            
-            // Run a full visibility update very infrequently for large simulations to avoid freezing
-            // Scale frequency based on number of cells
+        // Toggle cell generation thread
+        if (IsKeyPressed(KEY_SPACE)) {
+            if (octaManager.isGenerationActive()) {
+                octaManager.stopGenerationThread();
+            } else {
+                octaManager.startGenerationThread();
+            }
+        }
+
+        if (octaManager.isGenerationActive()) {
+            octaManager.applyPendingChanges();
+
+            // Scale visibility update frequency based on cell count
             size_t cellCount = octaManager.getCount();
-            int updateFrequency = 60; // Default: once per second at 60 FPS
-            
-            // Scale update frequency based on cell count
-            if (cellCount > 100000) updateFrequency = 300;      // ~5 seconds
-            if (cellCount > 500000) updateFrequency = 600;      // ~10 seconds
-            if (cellCount > 1000000) updateFrequency = 1200;    // ~20 seconds
-            
+            int updateFrequency = 60;
+
+            if (cellCount > 100000) updateFrequency = 300;
+            if (cellCount > 500000) updateFrequency = 600;
+            if (cellCount > 1000000) updateFrequency = 1200;
+
             if (debugStats.frameCounter % updateFrequency == 0) {
                 octaManager.updateVisibility();
             }
         }
-        
-        // Toggle debug info display
+
         if (IsKeyPressed(KEY_D)) showDebugInfo = !showDebugInfo;
-        
-        // Force visibility update with V key
+
         if (IsKeyPressed(KEY_V)) {
             octaManager.updateVisibility();
+        }
+        
+        if (IsKeyPressed(KEY_B)) {
+            octaManager.toggleBoundaryVisibility();
+        }
+        
+        if (IsKeyPressed(KEY_N)) {
+            octaManager.generateRandomBoundary();
+        }
+        
+        if (IsKeyPressed(KEY_E)) {
+            octaManager.toggleBoundaryEnabled();
+        }
+        
+        if (IsKeyPressed(KEY_R)) {
+            octaManager.resetSimulation();
         }
 
         UpdateCamera(&camera, CAMERA_ORBITAL);
@@ -251,29 +273,36 @@ int main() {
             }
             EndMode3D();
 
-            // Draw basic info or full debug info based on toggle
             if (showDebugInfo) {
-                DrawDebugInfo(octaManager, genNewOctahedra, debugStats);
+                DrawDebugInfo(octaManager, octaManager.isGenerationActive(), debugStats);
             } else {
                 // Show minimal information when debug is off
                 DrawFPS(10, 10);
                 DrawText(TextFormat("Octahedra: %zu", octaManager.getCount()), 10, 30, 20, BLACK);
-                
-                // Update minimal visibility stats
+
                 if (debugStats.frameCounter % 60 == 0) {
                     debugStats.visibilityStats = octaManager.getVisibilityStats();
                 }
-                
-                DrawText(TextFormat("Visible: %zu | Hidden: %zu", 
+
+                DrawText(TextFormat("Visible: %zu | Hidden: %zu",
                     debugStats.visibilityStats.first, debugStats.visibilityStats.second), 10, 50, 20, BLACK);
-                
-                if (genNewOctahedra) {
-                    DrawText("Generating new octahedra...", 10, 70, 20, GREEN);
+
+                if (octaManager.isGenerationActive()) {
+                    DrawText("Generating new octahedra (background)...", 10, 70, 20, GREEN);
                 } else {
-                    DrawText("Press SPACE to generate new octahedra", 10, 70, 20, DARKGRAY);
+                    DrawText("Press SPACE to toggle generation", 10, 70, 20, DARKGRAY);
                 }
-                DrawText("Press D to toggle debug information", 10, GetScreenHeight() - 30, 18, DARKGRAY);
-                DrawText("Press V to update visibility calculations", 10, GetScreenHeight() - 10, 18, DARKGRAY);
+                
+                // Show boundary constraint status
+                const char* boundaryStatus = octaManager.isBoundaryEnabled() ? "ENABLED" : "DISABLED";
+                DrawText(TextFormat("Boundary constraint: %s", boundaryStatus), 
+                         10, 90, 20, octaManager.isBoundaryEnabled() ? GREEN : GRAY);
+                DrawText("Press R to reset entire simulation", 10, GetScreenHeight() - 120, 18, DARKGRAY);
+                DrawText("Press D to toggle debug information", 10, GetScreenHeight() - 100, 18, DARKGRAY);
+                DrawText("Press V to update visibility calculations", 10, GetScreenHeight() - 80, 18, DARKGRAY);
+                DrawText("Press B to toggle boundary visibility", 10, GetScreenHeight() - 60, 18, DARKGRAY);
+                DrawText("Press N to generate a new random boundary", 10, GetScreenHeight() - 40, 18, DARKGRAY);
+                DrawText("Press E to toggle boundary constraint", 10, GetScreenHeight() - 20, 18, DARKGRAY);
             }
         }
         EndDrawing();
