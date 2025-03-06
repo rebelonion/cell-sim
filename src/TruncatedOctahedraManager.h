@@ -15,21 +15,23 @@ struct TransformData {
     std::vector<float> positions_x;
     std::vector<float> positions_y;
     std::vector<float> positions_z;
+    std::vector<bool> is_visible;
 
     void reserve(const size_t n) {
         positions_x.reserve(n);
         positions_y.reserve(n);
         positions_z.reserve(n);
+        is_visible.reserve(n);
     }
 
     void add(const Vector3 &pos) {
         positions_x.push_back(pos.x);
         positions_y.push_back(pos.y);
         positions_z.push_back(pos.z);
+        is_visible.push_back(true);  // Initially visible
     }
 
     [[nodiscard]] size_t size() const { return positions_x.size(); }
-
 
     [[nodiscard]] Matrix getTransform(const size_t index) const {
         return MatrixTranslate(
@@ -45,6 +47,14 @@ struct TransformData {
             positions_y[index],
             positions_z[index]
         };
+    }
+    
+    void setVisibility(const size_t index, bool visible) {
+        is_visible[index] = visible;
+    }
+    
+    [[nodiscard]] bool isVisible(const size_t index) const {
+        return is_visible[index];
     }
 };
 
@@ -94,15 +104,36 @@ public:
         return indices;
     }
 
+    void updateVisibility() {
+        // Using parallelized execution for better performance
+        std::vector<size_t> indices(transforms.size());
+        std::iota(indices.begin(), indices.end(), 0);
+        
+        std::for_each(
+            std::execution::par_unseq,
+            indices.begin(), indices.end(),
+            [&](size_t idx) {
+                Vector3 pos = transforms.getPosition(idx);
+                auto neighbors = grid.getOccupiedNeighbors(pos);
+                
+                // Cell is invisible if it has all 14 neighbors
+                bool isVisible = neighbors.size() < 14;
+                transforms.setVisibility(idx, isVisible);
+            }
+        );
+    }
+    
     void draw() const {
         if (transforms.size() == 0) return;
 
-        // Create temporary array of matrices for rendering
+        // Create temporary array of matrices for rendering only visible cells
         std::vector<Matrix> renderMatrices;
         renderMatrices.reserve(transforms.size());
 
         for (size_t i = 0; i < transforms.size(); i++) {
-            renderMatrices.push_back(transforms.getTransform(i));
+            if (transforms.isVisible(i)) {
+                renderMatrices.push_back(transforms.getTransform(i));
+            }
         }
 
         DrawMeshInstanced(baseModel.meshes[0], material, renderMatrices.data(), renderMatrices.size());
@@ -233,6 +264,22 @@ public:
     // Get availability statistics
     [[nodiscard]] std::pair<size_t, size_t> getAvailabilityStats() const {
         return {totalSquareFacesAvailable, totalHexagonFacesAvailable};
+    }
+    
+    // Get visibility statistics
+    [[nodiscard]] std::pair<size_t, size_t> getVisibilityStats() const {
+        size_t visible = 0;
+        size_t hidden = 0;
+        
+        for (size_t i = 0; i < transforms.size(); i++) {
+            if (transforms.isVisible(i)) {
+                visible++;
+            } else {
+                hidden++;
+            }
+        }
+        
+        return {visible, hidden};
     }
     
     // Reset all statistics

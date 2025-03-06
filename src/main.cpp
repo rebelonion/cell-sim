@@ -21,6 +21,7 @@ struct DebugStats {
     std::unordered_map<int, int> neighborStats;
     std::pair<size_t, size_t> placementStats;
     std::pair<size_t, size_t> availabilityStats;
+    std::pair<size_t, size_t> visibilityStats;
     std::tuple<size_t, size_t, size_t, double> hashStats;
 };
 
@@ -31,6 +32,7 @@ void DrawDebugInfo(const TruncatedOctahedraManager& octaManager, bool genNewOcta
         stats.neighborStats = octaManager.getNeighborStats();
         stats.placementStats = octaManager.getPlacementStats();
         stats.availabilityStats = octaManager.getAvailabilityStats();
+        stats.visibilityStats = octaManager.getVisibilityStats();
         stats.hashStats = octaManager.getHashStats();
     }
 
@@ -83,6 +85,19 @@ void DrawDebugInfo(const TruncatedOctahedraManager& octaManager, bool genNewOcta
              10, 220, 18, MAROON);
     DrawText(TextFormat("Hexagon faces available: %zu (%.1f%%)", stats.availabilityStats.second, hexagonAvailPercent),
              10, 240, 18, MAROON);
+             
+    // Display visibility statistics
+    size_t totalCells = stats.visibilityStats.first + stats.visibilityStats.second;
+    float visiblePercent = totalCells > 0 ?
+                          100.0f * static_cast<float>(stats.visibilityStats.first) / static_cast<float>(totalCells) : 0.0f;
+    float hiddenPercent = totalCells > 0 ?
+                         100.0f * static_cast<float>(stats.visibilityStats.second) / static_cast<float>(totalCells) : 0.0f;
+                         
+    DrawText("Visibility Statistics:", 300, 140, 20, BLACK);
+    DrawText(TextFormat("Visible cells: %zu (%.1f%%)", stats.visibilityStats.first, visiblePercent),
+             300, 160, 18, GREEN);
+    DrawText(TextFormat("Hidden cells: %zu (%.1f%%)", stats.visibilityStats.second, hiddenPercent),
+             300, 180, 18, RED);
 
     // Display neighbor statistics
     DrawText("Neighbor Statistics:", 10, 270, 20, BLACK);
@@ -102,6 +117,8 @@ void DrawDebugInfo(const TruncatedOctahedraManager& octaManager, bool genNewOcta
              10, GetScreenHeight() - 50, 18, DARKGRAY);
     DrawText("Press D to toggle debug information",
              10, GetScreenHeight() - 30, 18, DARKGRAY);
+    DrawText("Press V to update visibility calculations",
+             10, GetScreenHeight() - 10, 18, DARKGRAY);
 }
 
 int main() {
@@ -194,10 +211,19 @@ int main() {
         if (IsKeyPressed(KEY_SPACE)) genNewOctahedra = !genNewOctahedra;
         if (genNewOctahedra) {
             octaManager.trySpawningNewOctahedra(deltaTime);
+            
+            // Update visibility after adding new cells
+            // Only update when we spawn new cells to avoid unnecessary calculations
+            octaManager.updateVisibility();
         }
         
         // Toggle debug info display
         if (IsKeyPressed(KEY_D)) showDebugInfo = !showDebugInfo;
+        
+        // Force visibility update with V key
+        if (IsKeyPressed(KEY_V)) {
+            octaManager.updateVisibility();
+        }
 
         UpdateCamera(&camera, CAMERA_ORBITAL);
 
@@ -220,12 +246,22 @@ int main() {
                 // Show minimal information when debug is off
                 DrawFPS(10, 10);
                 DrawText(TextFormat("Octahedra: %zu", octaManager.getCount()), 10, 30, 20, BLACK);
+                
+                // Update minimal visibility stats
+                if (debugStats.frameCounter % 60 == 0) {
+                    debugStats.visibilityStats = octaManager.getVisibilityStats();
+                }
+                
+                DrawText(TextFormat("Visible: %zu | Hidden: %zu", 
+                    debugStats.visibilityStats.first, debugStats.visibilityStats.second), 10, 50, 20, BLACK);
+                
                 if (genNewOctahedra) {
-                    DrawText("Generating new octahedra...", 10, 50, 20, GREEN);
+                    DrawText("Generating new octahedra...", 10, 70, 20, GREEN);
                 } else {
-                    DrawText("Press SPACE to generate new octahedra", 10, 50, 20, DARKGRAY);
+                    DrawText("Press SPACE to generate new octahedra", 10, 70, 20, DARKGRAY);
                 }
                 DrawText("Press D to toggle debug information", 10, GetScreenHeight() - 30, 18, DARKGRAY);
+                DrawText("Press V to update visibility calculations", 10, GetScreenHeight() - 10, 18, DARKGRAY);
             }
         }
         EndDrawing();
