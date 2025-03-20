@@ -11,6 +11,9 @@
 #include <atomic>
 #include <condition_variable>
 #include <queue>
+#include <array>
+#include <algorithm>
+#include <iostream>
 
 #include "raylib.h"
 #include "raymath.h"
@@ -18,17 +21,38 @@
 
 #include "BoundaryManager.h"
 
+// Colors for different neighbor counts (0-14)
+constexpr std::array<Color, 15> NEIGHBOR_COLORS = {{
+    BLUE,           // 0 neighbors
+    SKYBLUE,        // 1 neighbor
+    DARKBLUE,       // 2 neighbors
+    PURPLE,         // 3 neighbors
+    VIOLET,         // 4 neighbors
+    PINK,           // 5 neighbors
+    MAGENTA,        // 6 neighbors
+    MAROON,         // 7 neighbors
+    RED,            // 8 neighbors
+    ORANGE,         // 9 neighbors
+    GOLD,           // 10 neighbors
+    YELLOW,         // 11 neighbors
+    BEIGE,          // 12 neighbors
+    LIME,           // 13 neighbors
+    GREEN           // 14 neighbors (fully surrounded)
+}};
+
 struct TransformData {
     std::vector<float> positions_x;
     std::vector<float> positions_y;
     std::vector<float> positions_z;
     std::vector<bool> is_visible;
+    std::vector<int> neighbor_counts;
 
     void reserve(const size_t n) {
         positions_x.reserve(n);
         positions_y.reserve(n);
         positions_z.reserve(n);
         is_visible.reserve(n);
+        neighbor_counts.reserve(n);
     }
 
     void add(const Vector3 &pos) {
@@ -36,6 +60,7 @@ struct TransformData {
         positions_y.push_back(pos.y);
         positions_z.push_back(pos.z);
         is_visible.push_back(true);
+        neighbor_counts.push_back(0); // Initially no neighbors
     }
 
     [[nodiscard]] size_t size() const { return positions_x.size(); }
@@ -63,6 +88,14 @@ struct TransformData {
     [[nodiscard]] bool isVisible(const size_t index) const {
         return is_visible[index];
     }
+    
+    void setNeighborCount(const size_t index, int count) {
+        neighbor_counts[index] = count;
+    }
+    
+    [[nodiscard]] int getNeighborCount(const size_t index) const {
+        return neighbor_counts[index];
+    }
 };
 
 class TruncatedOctahedraManager {
@@ -73,9 +106,40 @@ public:
           generationActive(false),
           shouldStopThread(false),
           boundaryManager(std::make_shared<BoundaryManager>()) {
+        
+        // Create models for each neighbor count with different colors
+        setupColoredModels();
+        
         transforms.reserve(5000000);
         constexpr Vector3 center = {0.0f, 2.0f, 0.0f};
         addOctahedron(center);
+        
+        // Initialize the first cell's neighbor count
+        if (transforms.size() > 0) {
+            updateCellVisibility(0);
+        }
+    }
+    
+    // Create independent colored models for each neighbor count
+    void setupColoredModels() {
+        for (int i = 0; i < 15; i++) {
+            // Create a new mesh for each model
+            Mesh mesh = MeshGenerator::genTruncatedOctahedron();
+            
+            // Create the model from the mesh
+            coloredModels[i] = LoadModelFromMesh(mesh);
+            
+            // Assign a new material with the desired color
+            Material newMaterial = LoadMaterialDefault();
+            newMaterial.maps[MATERIAL_MAP_DIFFUSE].color = NEIGHBOR_COLORS[i];
+            newMaterial.maps[MATERIAL_MAP_SPECULAR].color = WHITE;
+            newMaterial.maps[MATERIAL_MAP_DIFFUSE].value = 1.0f;
+            newMaterial.maps[MATERIAL_MAP_SPECULAR].value = 0.5f;
+            newMaterial.shader = material.shader;  // Use the same shader as the base material
+            
+            // Assign the material to the model
+            coloredModels[i].materials[0] = newMaterial;
+        }
     }
 
     [[nodiscard]] std::shared_ptr<BoundaryManager> getBoundaryManager() const {
@@ -93,6 +157,11 @@ public:
 
         std::lock_guard lock(pendingChangesMutex);
         pendingNewPositions.clear();
+        
+        // Unload all the colored models
+        for (int i = 0; i < 15; i++) {
+            UnloadModel(coloredModels[i]);
+        }
     }
 
     void addOctahedron(const Vector3 &pos) {
@@ -156,8 +225,10 @@ public:
         const Vector3 pos = transforms.getPosition(idx);
         const auto neighbors = grid.getOccupiedNeighbors(pos);
 
-        const bool isVisible = neighbors.size() < 14;
+        const int neighborCount = static_cast<int>(neighbors.size());
+        const bool isVisible = neighborCount < 14;
         transforms.setVisibility(idx, isVisible);
+        transforms.setNeighborCount(idx, neighborCount);
     }
 
     void updateVisibilityForNewCells(const std::vector<Vector3> &newPositions) {
@@ -207,44 +278,36 @@ public:
 
         constexpr size_t MAX_BATCH_SIZE = 100000;
 
-        size_t visibleCount = 0;
-        for (size_t i = 0; i < transforms.size(); i++) {
-            if (transforms.isVisible(i)) {
-                visibleCount++;
-            }
+        // Group transforms by neighbor count (0-14)
+        std::array<std::vector<Matrix>, 15> neighborCountMatrices;
+        for (auto& matrices : neighborCountMatrices) {
+            matrices.reserve(1000); // Initial reservation to avoid too many reallocations
         }
 
-        if (visibleCount <= MAX_BATCH_SIZE) {
-            std::vector<Matrix> renderMatrices;
-            renderMatrices.reserve(visibleCount);
-
-            for (size_t i = 0; i < transforms.size(); i++) {
-                if (transforms.isVisible(i)) {
-                    renderMatrices.push_back(transforms.getTransform(i));
-                }
+        // Organize visible cells by neighbor count
+        for (size_t i = 0; i < transforms.size(); i++) {
+            if (transforms.isVisible(i)) {
+                int neighborCount = transforms.getNeighborCount(i);
+                
+                // Ensure neighbor count is in valid range
+                neighborCount = std::clamp(neighborCount, 0, 14);
+                
+                neighborCountMatrices[neighborCount].push_back(transforms.getTransform(i));
             }
+        }
+        // Render each group with its corresponding colored material
+        for (int count = 0; count < 15; count++) {
+            const auto& matrices = neighborCountMatrices[count];
+            if (matrices.empty()) continue;
 
-            DrawMeshInstanced(baseModel.meshes[0], material, renderMatrices.data(), renderMatrices.size());
-        } else {
-            std::vector<Matrix> renderMatrices;
-            renderMatrices.reserve(MAX_BATCH_SIZE);
-            size_t batchCount = 0;
-
-            for (size_t i = 0; i < transforms.size(); i++) {
-                if (transforms.isVisible(i)) {
-                    renderMatrices.push_back(transforms.getTransform(i));
-                    batchCount++;
-
-                    if (batchCount >= MAX_BATCH_SIZE) {
-                        DrawMeshInstanced(baseModel.meshes[0], material, renderMatrices.data(), renderMatrices.size());
-                        renderMatrices.clear();
-                        batchCount = 0;
-                    }
+            // Render in batches if needed
+            if (matrices.size() <= MAX_BATCH_SIZE) {
+                DrawMeshInstanced(coloredModels[count].meshes[0], coloredModels[count].materials[0], matrices.data(), matrices.size());
+            } else {
+                for (size_t offset = 0; offset < matrices.size(); offset += MAX_BATCH_SIZE) {
+                    size_t batchSize = std::min(MAX_BATCH_SIZE, matrices.size() - offset);
+                    DrawMeshInstanced(coloredModels[count].meshes[0], coloredModels[count].materials[0], matrices.data() + offset, batchSize);
                 }
-            }
-
-            if (!renderMatrices.empty()) {
-                DrawMeshInstanced(baseModel.meshes[0], material, renderMatrices.data(), renderMatrices.size());
             }
         }
 
@@ -276,8 +339,7 @@ public:
         std::unordered_map<int, int> neighborCounts;
 
         for (size_t i = 0; i < transforms.size(); i++) {
-            Vector3 pos = transforms.getPosition(i);
-            int neighborCount = grid.getOccupiedNeighbors(pos).size();
+            int neighborCount = transforms.getNeighborCount(i);
             neighborCounts[neighborCount]++;
         }
 
@@ -416,6 +478,7 @@ public:
             transforms.positions_y.reserve(newCapacity);
             transforms.positions_z.reserve(newCapacity);
             transforms.is_visible.reserve(newCapacity);
+            transforms.neighbor_counts.reserve(newCapacity);
         }
 
         constexpr size_t batchSize = 5000;
@@ -533,6 +596,7 @@ private:
     OctahedronGrid grid;
     Model baseModel;
     Material material;
+    std::array<Model, 15> coloredModels;
     std::mt19937 gen;
 
     std::thread generationThread;
@@ -605,6 +669,11 @@ public:
         // Re-add the initial octahedron at the center
         constexpr Vector3 center = {0.0f, 2.0f, 0.0f};
         addOctahedron(center);
+        
+        // Initialize the first cell's neighbor count
+        if (transforms.size() > 0) {
+            updateCellVisibility(0);
+        }
 
         // Generate a new random boundary
         boundaryManager->generateRandomBoundary();

@@ -306,10 +306,10 @@ public:
             mesh.texcoords[i * 2 + 1] = 0.0f;
 
             // Set default colors (white)
-            mesh.colors[i * 4] = 255;
-            mesh.colors[i * 4 + 1] = 255;
-            mesh.colors[i * 4 + 2] = 255;
-            mesh.colors[i * 4 + 3] = 255;
+            mesh.colors[i * 4] = 255;      // R
+            mesh.colors[i * 4 + 1] = 255;  // G
+            mesh.colors[i * 4 + 2] = 255;  // B
+            mesh.colors[i * 4 + 3] = 255;  // A
         }
 
         UploadMesh(&mesh, false);
