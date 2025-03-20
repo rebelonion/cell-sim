@@ -111,12 +111,48 @@ public:
         setupColoredModels();
         
         transforms.reserve(5000000);
-        constexpr Vector3 center = {0.0f, 2.0f, 0.0f};
-        addOctahedron(center);
         
-        // Initialize the first cell's neighbor count
-        if (transforms.size() > 0) {
-            updateCellVisibility(0);
+        // Generate between 2 and 5 random octahedra
+        std::uniform_int_distribution<int> countDist(2, 5);
+        int numOctahedra = countDist(gen);
+        
+        // Create widely separated starting positions
+        std::vector<Vector3> startingPositions;
+        
+        // Instead of fixed center, create octahedra in different quadrants/sectors
+        // Use larger range to spread them out more
+        std::uniform_real_distribution<float> spreadDist(30.0f, 70.0f);
+        std::uniform_real_distribution<float> yDist(-10.0f, 30.0f);
+        
+        // Generate random positions that are well-separated
+        for (int i = 0; i < numOctahedra; i++) {
+            // Generate coordinates with distance from origin
+            float dist = spreadDist(gen);
+            float angle = (2.0f * PI * i) / numOctahedra; // Evenly distribute around a circle
+            
+            // Convert to cartesian coordinates
+            Vector3 randomPos = {
+                dist * cosf(angle),
+                yDist(gen), // Random height
+                dist * sinf(angle)
+            };
+            
+            // Place octahedron only if within boundary
+            if (isWithinBoundary(randomPos)) {
+                startingPositions.push_back(randomPos);
+                addOctahedron(randomPos);
+            }
+        }
+        
+        // If no octahedra were placed (all outside boundary), place one at center
+        if (startingPositions.empty()) {
+            constexpr Vector3 center = {0.0f, 2.0f, 0.0f};
+            addOctahedron(center);
+        }
+        
+        // Initialize neighbor counts for all initial cells
+        for (size_t i = 0; i < transforms.size(); i++) {
+            updateCellVisibility(i);
         }
     }
     
@@ -666,16 +702,50 @@ public:
         // Reset all statistics
         resetPlacementStats();
 
-        // Re-add the initial octahedron at the center
-        constexpr Vector3 center = {0.0f, 2.0f, 0.0f};
-        addOctahedron(center);
-        
-        // Initialize the first cell's neighbor count
-        if (transforms.size() > 0) {
-            updateCellVisibility(0);
-        }
-
         // Generate a new random boundary
         boundaryManager->generateRandomBoundary();
+        
+        // Generate between 2 and 5 random octahedra
+        std::uniform_int_distribution<int> countDist(2, 5);
+        int numOctahedra = countDist(gen);
+        
+        // Create widely separated starting positions
+        std::vector<Vector3> startingPositions;
+        
+        // Instead of fixed center, create octahedra in different quadrants/sectors
+        // Use larger range to spread them out more
+        std::uniform_real_distribution<float> spreadDist(30.0f, 70.0f);
+        std::uniform_real_distribution<float> yDist(-10.0f, 30.0f);
+        
+        // Generate random positions that are well-separated
+        for (int i = 0; i < numOctahedra; i++) {
+            // Generate coordinates with distance from origin
+            float dist = spreadDist(gen);
+            float angle = (2.0f * PI * i) / numOctahedra; // Evenly distribute around a circle
+            
+            // Convert to cartesian coordinates
+            Vector3 randomPos = {
+                dist * cosf(angle),
+                yDist(gen), // Random height
+                dist * sinf(angle)
+            };
+            
+            // Place octahedron only if within boundary
+            if (isWithinBoundary(randomPos)) {
+                startingPositions.push_back(randomPos);
+                addOctahedron(randomPos);
+            }
+        }
+        
+        // If no octahedra were placed (all outside boundary), place one at center
+        if (startingPositions.empty()) {
+            constexpr Vector3 center = {0.0f, 2.0f, 0.0f};
+            addOctahedron(center);
+        }
+        
+        // Initialize neighbor counts for all initial cells
+        for (size_t i = 0; i < transforms.size(); i++) {
+            updateCellVisibility(i);
+        }
     }
 };
