@@ -128,6 +128,44 @@ private:
     }
 };
 
+//a very large horizontal rectangle boundary generator
+class LargeRectangleBoundary : public BoundaryShape {
+public:
+    LargeRectangleBoundary(const Vector3& center, float width, float depth, float height)
+        : center(center), width(width), depth(depth), height(height) {}
+
+    [[nodiscard]] bool contains(const Vector3& point) const override {
+        return point.x >= center.x - width / 2 && point.x <= center.x + width / 2 &&
+       point.y >= center.y - height / 2 && point.y <= center.y + height / 2 &&
+       point.z >= center.z - depth / 2 && point.z <= center.z + depth / 2;
+    }
+
+    void drawWireframe(const Color& color) const override {
+        Vector3 corners[8] = {
+            {center.x - width / 2, center.y - height / 2, center.z - depth / 2},
+            {center.x + width / 2, center.y - height / 2, center.z - depth / 2},
+            {center.x + width / 2, center.y + height / 2, center.z - depth / 2},
+            {center.x - width / 2, center.y + height / 2, center.z - depth / 2},
+            {center.x - width / 2, center.y - height / 2, center.z + depth / 2},
+            {center.x + width / 2, center.y - height / 2, center.z + depth / 2},
+            {center.x + width / 2, center.y + height / 2, center.z + depth / 2},
+            {center.x - width / 2, center.y + height / 2, center.z + depth / 2}
+        };
+
+        for (int i = 0; i < 4; i++) {
+            DrawLine3D(corners[i], corners[(i + 1) % 4], color);
+            DrawLine3D(corners[i + 4], corners[((i + 1) % 4) + 4], color);
+            DrawLine3D(corners[i], corners[i + 4], color);
+        }
+    }
+
+private:
+    Vector3 center;
+    float width;
+    float depth;
+    float height;
+};
+
 // Main class to manage boundary generation and rendering
 class BoundaryManager {
 public:
@@ -183,7 +221,7 @@ public:
         std::mt19937 gen(rd());
         
         // Randomly choose between different boundary shapes
-        std::uniform_int_distribution<> shapeDist(0, 2);
+        std::uniform_int_distribution<> shapeDist(0, 3);
         int shapeType = shapeDist(gen);
         
         if (shapeType == 0) {
@@ -221,6 +259,17 @@ public:
             float height = heightDist(gen);
             
             boundary = std::make_shared<CylindricalBoundary>(Vector3{0, 0, 0}, radius, height);
+        }
+        else if (shapeType == 2) {
+            // Large horizontal rectangle
+            std::uniform_real_distribution<float> widthDist(300.0f, 400.0f);
+            std::uniform_real_distribution<float> depthDist(300.0f, 400.0f);
+            std::uniform_real_distribution<float> heightDist(30.0f, 70.0f);
+
+            float width = widthDist(gen);
+            float depth = depthDist(gen);
+
+            boundary = std::make_shared<LargeRectangleBoundary>(Vector3{0, 0, 0}, width, depth, heightDist(gen));
         }
         else {
             // Random complex shape (with holes or concavities)

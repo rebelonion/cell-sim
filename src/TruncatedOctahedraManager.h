@@ -129,14 +129,14 @@ public:
             // Generate coordinates with distance from origin
             float dist = spreadDist(gen);
             float angle = (2.0f * PI * i) / numOctahedra; // Evenly distribute around a circle
-            
+
             // Convert to cartesian coordinates
             Vector3 randomPos = {
                 dist * cosf(angle),
                 yDist(gen), // Random height
                 dist * sinf(angle)
             };
-            
+
             // Place octahedron only if within boundary
             if (isWithinBoundary(randomPos)) {
                 startingPositions.push_back(randomPos);
@@ -536,7 +536,7 @@ private:
     void generationThreadFunc() {
         while (!shouldStopThread) {
             //generateCellBatch();
-            trySpawningNewOctahedra(0.16f);
+            trySpawningNewOctahedra(0.0056f);
 
             if (shouldStopThread) break;
 
