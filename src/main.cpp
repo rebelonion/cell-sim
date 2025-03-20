@@ -149,13 +149,13 @@ int main() {
     float rotationAngle = 0.0f;
 
     lights[0] =
-            CreateLight(LIGHT_POINT, (Vector3){-lightRadius, lightHeight, -lightRadius}, Vector3Zero(), DARKPURPLE, shader);
+            CreateLight(LIGHT_POINT, (Vector3){-lightRadius, lightHeight, -lightRadius}, Vector3Zero(), WHITE, shader);
     lights[1] =
-            CreateLight(LIGHT_POINT, (Vector3){lightRadius, lightHeight, lightRadius}, Vector3Zero(), DARKBLUE, shader);
+            CreateLight(LIGHT_POINT, (Vector3){lightRadius, lightHeight, lightRadius}, Vector3Zero(), WHITE, shader);
     lights[2] =
-            CreateLight(LIGHT_POINT, (Vector3){-lightRadius, lightHeight, lightRadius}, Vector3Zero(), DARKGREEN, shader);
+            CreateLight(LIGHT_POINT, (Vector3){-lightRadius, lightHeight, lightRadius}, Vector3Zero(), WHITE, shader);
     lights[3] =
-            CreateLight(LIGHT_POINT, (Vector3){lightRadius, lightHeight, -lightRadius}, Vector3Zero(), DARKBLUE, shader);
+            CreateLight(LIGHT_POINT, (Vector3){lightRadius, lightHeight, -lightRadius}, Vector3Zero(), WHITE, shader);
 
     Camera3D camera = {};
     camera.position = Vector3{400.0f, 400.0f, 400.0f};
@@ -191,7 +191,7 @@ int main() {
 
         rotationAngle += LIGHT_ROTATION_SPEED * deltaTime;
 
-        lights[0].position = (Vector3){
+        /*lights[0].position = (Vector3){
             -lightRadius * cosf(rotationAngle),
             lightHeight,
             -lightRadius * sinf(rotationAngle)
@@ -210,7 +210,7 @@ int main() {
             lightRadius * cosf(rotationAngle - PI / 2),
             lightHeight,
             -lightRadius * sinf(rotationAngle - PI / 2)
-        };
+        };*/
 
         // Toggle cell generation thread
         if (IsKeyPressed(KEY_SPACE)) {
@@ -264,7 +264,7 @@ int main() {
         const float cameraPos[3] = {camera.position.x, camera.position.y, camera.position.z};
         SetShaderValue(shader, shader.locs[SHADER_LOC_VECTOR_VIEW], cameraPos, SHADER_UNIFORM_VEC3);
 
-        for (const auto &light: lights) UpdateLightValues(shader, light);
+        //for (const auto &light: lights) UpdateLightValues(shader, light);
 
         BeginDrawing(); {
             ClearBackground(GRAY);

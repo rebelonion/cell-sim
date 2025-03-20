@@ -34,7 +34,7 @@ if (NOT TBB_FOUND)
 endif ()
 
 set(RAYLIB_VERSION 5.5)
-set(PLATFORM "SDL" CACHE STRING "Platform for raylib")
+# set(PLATFORM "SDL" CACHE STRING "Platform for raylib")
 if(UNIX AND NOT APPLE)
     set(GLFW_BUILD_WAYLAND ON CACHE BOOL "" FORCE)
     set(GLFW_BUILD_X11 ON CACHE BOOL "" FORCE)

@@ -436,7 +436,8 @@ public:
 private:
     void generationThreadFunc() {
         while (!shouldStopThread) {
-            generateCellBatch();
+            //generateCellBatch();
+            trySpawningNewOctahedra(0.16f);
 
             if (shouldStopThread) break;
 
