@@ -61,73 +61,6 @@ private:
     float height;
 };
 
-// A custom polygonal prism boundary shape (extruded 2D polygon)
-class PolygonalPrismBoundary : public BoundaryShape {
-public:
-    PolygonalPrismBoundary(const std::vector<Vector2>& basePoints, float minY, float maxY)
-        : basePoints(basePoints), minY(minY), maxY(maxY) {}
-    
-    [[nodiscard]] bool contains(const Vector3& point) const override {
-        // Check height bounds first (fast rejection)
-        if (point.y < minY || point.y > maxY) {
-            return false;
-        }
-        
-        // Check if point is inside the polygon (using ray casting algorithm)
-        return isPointInPolygon({point.x, point.z}, basePoints);
-    }
-    
-    void drawWireframe(const Color& color) const override {
-        // Draw base and top polygons
-        const size_t numPoints = basePoints.size();
-        for (size_t i = 0; i < numPoints; i++) {
-            size_t nextIdx = (i + 1) % numPoints;
-            
-            // Draw bottom edges
-            DrawLine3D(
-                {basePoints[i].x, minY, basePoints[i].y},
-                {basePoints[nextIdx].x, minY, basePoints[nextIdx].y},
-                color
-            );
-            
-            // Draw top edges
-            DrawLine3D(
-                {basePoints[i].x, maxY, basePoints[i].y},
-                {basePoints[nextIdx].x, maxY, basePoints[nextIdx].y},
-                color
-            );
-            
-            // Draw vertical edges
-            DrawLine3D(
-                {basePoints[i].x, minY, basePoints[i].y},
-                {basePoints[i].x, maxY, basePoints[i].y},
-                color
-            );
-        }
-    }
-    
-private:
-    std::vector<Vector2> basePoints;
-    float minY;
-    float maxY;
-    
-    // Ray casting algorithm to determine if a point is inside a polygon
-    [[nodiscard]] static bool isPointInPolygon(const Vector2& point, const std::vector<Vector2>& polygon) {
-        bool inside = false;
-        const size_t numPoints = polygon.size();
-        
-        for (size_t i = 0, j = numPoints - 1; i < numPoints; j = i++) {
-            if (((polygon[i].y > point.y) != (polygon[j].y > point.y)) &&
-                (point.x < (polygon[j].x - polygon[i].x) * (point.y - polygon[i].y) / 
-                (polygon[j].y - polygon[i].y) + polygon[i].x)) {
-                inside = !inside;
-            }
-        }
-        
-        return inside;
-    }
-};
-
 //a very large horizontal rectangle boundary generator
 class LargeRectangleBoundary : public BoundaryShape {
 public:
@@ -169,7 +102,7 @@ private:
 // Main class to manage boundary generation and rendering
 class BoundaryManager {
 public:
-    BoundaryManager() : showBoundary(true), boundaryColor(RED), boundaryEnabled(true) {
+    BoundaryManager() : showBoundary(true), boundaryEnabled(true), boundaryColor(RED) {
         generateRandomBoundary();
     }
     
@@ -221,36 +154,10 @@ public:
         std::mt19937 gen(rd());
         
         // Randomly choose between different boundary shapes
-        std::uniform_int_distribution<> shapeDist(0, 3);
+        std::uniform_int_distribution<> shapeDist(0, 1);
         int shapeType = shapeDist(gen);
         
         if (shapeType == 0) {
-            // Random star-like shape
-            std::vector<Vector2> randomShape;
-            std::uniform_int_distribution<> pointsDist(6, 15); // Random number of points
-            int numPoints = pointsDist(gen);
-            
-            std::uniform_real_distribution<float> radiusDist(80.0f, 200.0f);
-            std::uniform_real_distribution<float> variationDist(0.3f, 0.8f);
-            
-            for (int i = 0; i < numPoints; i++) {
-                float angle = (2 * PI * i) / numPoints;
-                float radius = radiusDist(gen);
-                
-                // Add some variation to make it more interesting
-                if (i % 2 == 0) {
-                    radius *= variationDist(gen);
-                }
-                
-                float x = cosf(angle) * radius;
-                float y = sinf(angle) * radius;
-                
-                randomShape.push_back({x, y});
-            }
-            
-            boundary = std::make_shared<PolygonalPrismBoundary>(randomShape, -100.0f, 100.0f);
-        }
-        else if (shapeType == 1) {
             // Random cylindrical boundary
             std::uniform_real_distribution<float> radiusDist(80.0f, 180.0f);
             std::uniform_real_distribution<float> heightDist(150.0f, 300.0f);
@@ -260,7 +167,7 @@ public:
             
             boundary = std::make_shared<CylindricalBoundary>(Vector3{0, 0, 0}, radius, height);
         }
-        else if (shapeType == 2) {
+        else {
             // Large horizontal rectangle
             std::uniform_real_distribution<float> widthDist(300.0f, 400.0f);
             std::uniform_real_distribution<float> depthDist(300.0f, 400.0f);
@@ -268,35 +175,9 @@ public:
 
             float width = widthDist(gen);
             float depth = depthDist(gen);
+            float height = heightDist(gen);
 
-            boundary = std::make_shared<LargeRectangleBoundary>(Vector3{0, 0, 0}, width, depth, heightDist(gen));
-        }
-        else {
-            // Random complex shape (with holes or concavities)
-            std::vector<Vector2> complexShape;
-            
-            // Base on a combination of sine waves
-            for (int i = 0; i < 36; i++) {
-                float angle = (2 * PI * i) / 36.0f;
-                
-                std::uniform_real_distribution<float> freqDist(1.0f, 5.0f);
-                float frequency = freqDist(gen);
-                
-                std::uniform_real_distribution<float> minRadDist(100.0f, 130.0f);
-                float minRadius = minRadDist(gen);
-                
-                std::uniform_real_distribution<float> ampDist(30.0f, 80.0f);
-                float amplitude = ampDist(gen);
-                
-                float radius = minRadius + amplitude * sinf(frequency * angle);
-                
-                float x = cosf(angle) * radius;
-                float y = sinf(angle) * radius;
-                
-                complexShape.push_back({x, y});
-            }
-            
-            boundary = std::make_shared<PolygonalPrismBoundary>(complexShape, -100.0f, 100.0f);
+            boundary = std::make_shared<LargeRectangleBoundary>(Vector3{0, 0, 0}, width, depth, height);
         }
         
         // Generate a random color for the boundary
