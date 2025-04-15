@@ -284,14 +284,6 @@ int main() {
                     debugStats.visibilityStats = octaManager.getVisibilityStats();
                 }
 
-                DrawText(TextFormat("Visible: %zu | Hidden: %zu",
-                    debugStats.visibilityStats.first, debugStats.visibilityStats.second), 10, 50, 20, BLACK);
-
-                if (octaManager.isGenerationActive()) {
-                    DrawText("Generating new octahedra (background)...", 10, 70, 20, GREEN);
-                } else {
-                    DrawText("Press SPACE to toggle generation", 10, 70, 20, DARKGRAY);
-                }
                 
                 // Show boundary constraint status
                 const char* boundaryStatus = octaManager.isBoundaryEnabled() ? "ENABLED" : "DISABLED";
