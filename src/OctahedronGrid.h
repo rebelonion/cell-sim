@@ -25,6 +25,14 @@ public:
 
     explicit OctahedronGrid(const size_t length = 500, const size_t width = 500, const size_t height = 500)
         : gridLength(length), gridWidth(width), gridHeight(height) {
+        resizeGrid(length, width, height);
+    }
+
+    void resizeGrid(const size_t length, const size_t width, const size_t height) {
+        gridLength = length;
+        gridWidth = width;
+        gridHeight = height;
+        
         grid.resize(gridLength * gridWidth * gridHeight, {SIZE_MAX, {0, 0, 0}});
         indexToPositionMap.reserve(length * width * height);
     }

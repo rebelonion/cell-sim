@@ -8,6 +8,7 @@
 #include "TruncatedOctahedraManager.h"
 #include "BoundaryManager.h"
 #define RLIGHTS_IMPLEMENTATION
+#include "rlgl.h"
 #include "rlights.h"
 
 #if defined(PLATFORM_DESKTOP)
@@ -55,6 +56,8 @@ int main() {
     camera.projection = CAMERA_PERSPECTIVE;
     
     DisableCursor();    // Limit cursor to relative movement inside the window
+    rlFrustum(100000.0f, 100000.0f, 100000.0f, 100000.0f, 100000.0f, 100000.0f);
+    rlSetClipPlanes(0.1f, 10000.0f);
 
     Material material = LoadMaterialDefault();
     material.shader = shader;
@@ -101,6 +104,11 @@ int main() {
             lightHeight,
             -lightRadius * sinf(rotationAngle - PI / 2)
         };*/
+        
+        // Handle boundary resizing with arrow keys before simulation starts
+        if (!octaManager.isGenerationActive()) {
+            octaManager.handleBoundaryResizing();
+        }
 
         // Toggle cell generation thread
         if (IsKeyPressed(KEY_SPACE)) {
@@ -121,10 +129,6 @@ int main() {
 
         if (IsKeyPressed(KEY_B)) {
             octaManager.toggleBoundaryVisibility();
-        }
-
-        if (IsKeyPressed(KEY_N)) {
-            octaManager.generateRandomBoundary();
         }
 
         if (IsKeyPressed(KEY_E)) {
@@ -186,12 +190,16 @@ int main() {
             const char *boundaryStatus = octaManager.isBoundaryEnabled() ? "ENABLED" : "DISABLED";
             DrawText(TextFormat("Boundary constraint: %s", boundaryStatus),
                      10, 90, 20, octaManager.isBoundaryEnabled() ? GREEN : GRAY);
-            DrawText("Press R to reset entire simulation", 10, GetScreenHeight() - 120, 18, DARKGRAY);
-            DrawText("Press D to toggle debug information", 10, GetScreenHeight() - 100, 18, DARKGRAY);
-            DrawText("Press V to update visibility calculations", 10, GetScreenHeight() - 80, 18, DARKGRAY);
-            DrawText("Press B to toggle boundary visibility", 10, GetScreenHeight() - 60, 18, DARKGRAY);
-            DrawText("Press N to generate a new random boundary", 10, GetScreenHeight() - 40, 18, DARKGRAY);
-            DrawText("Press E to toggle boundary constraint", 10, GetScreenHeight() - 20, 18, DARKGRAY);
+            DrawText("Press R to reset entire simulation", 10, GetScreenHeight() - 140, 18, DARKGRAY);
+            DrawText("Press D to toggle debug information", 10, GetScreenHeight() - 120, 18, DARKGRAY);
+            DrawText("Press V to update visibility calculations", 10, GetScreenHeight() - 100, 18, DARKGRAY);
+            DrawText("Press B to toggle boundary visibility", 10, GetScreenHeight() - 80, 18, DARKGRAY);
+            DrawText("Press E to toggle boundary constraint", 10, GetScreenHeight() - 40, 18, DARKGRAY);
+            
+            // Show resize controls only when simulation is not running
+            if (!octaManager.isGenerationActive()) {
+                DrawText("Use ARROW KEYS to resize boundary before starting simulation", 10, GetScreenHeight() - 20, 18, GREEN);
+            }
         }
         EndDrawing();
     }

@@ -58,7 +58,7 @@ struct TransformData {
 
     [[nodiscard]] size_t size() const { return is_visible.size(); }
 
-    [[nodiscard]] Matrix getTransform(const size_t index, const Vector3 &position) const {
+    [[nodiscard]] static Matrix getTransform(const size_t index, const Vector3 &position) {
         return MatrixTranslate(
             position.x,
             position.y,
@@ -90,7 +90,8 @@ public:
           gen(std::random_device()()),
           generationActive(false),
           shouldStopThread(false),
-          boundaryManager(std::make_shared<BoundaryManager>()) {
+          boundaryManager(std::make_shared<BoundaryManager>()),
+          gridInitialized(false) {
         // Create models for each neighbor count with different colors
         setupColoredModels();
 
@@ -106,7 +107,7 @@ public:
         // Instead of fixed center, create octahedra in different quadrants/sectors
         // Use larger range to spread them out more
         std::uniform_real_distribution<float> spreadDist(30.0f, 70.0f);
-        std::uniform_real_distribution<float> yDist(-10.0f, 30.0f);
+        std::uniform_real_distribution<float> yDist(30.0f, 40.0f);
 
         // Generate random positions that are well-separated
         for (int i = 0; i < numOctahedra; i++) {
@@ -140,6 +141,11 @@ public:
         for (size_t i = 0; i < transforms.size(); i++) {
             updateCellVisibility(i);
         }
+    }
+    
+    // Handle boundary resizing by arrow keys
+    void handleBoundaryResizing() const {
+        boundaryManager->handleResizing();
     }
 
     // Create independent colored models for each neighbor count
@@ -181,7 +187,7 @@ public:
         pendingNewPositions.clear();
 
         for (int i = 0; i < 15; i++) {
-            UnloadModel(coloredModels[i]);
+            //UnloadModel(coloredModels[i]);
         }
     }
 
@@ -319,16 +325,11 @@ public:
             }
         }
 
-        // Draw boundary wireframe
         boundaryManager->draw();
     }
 
     void toggleBoundaryVisibility() const {
         boundaryManager->toggleVisibility();
-    }
-
-    void generateRandomBoundary() const {
-        boundaryManager->generateRandomBoundary();
     }
 
     void toggleBoundaryEnabled() const {
@@ -356,7 +357,7 @@ public:
             shouldSpawn.begin(),
             [&](size_t idx) {
                 thread_local std::mt19937 localGen(std::random_device{}());
-                return dis(localGen) < SPAWN_CHANCE * deltaTime;
+                return dis(localGen) < SPAWN_CHANCE + deltaTime;
             }
         );
 
@@ -397,6 +398,29 @@ public:
 
     void startGenerationThread() {
         if (generationActive) return;
+
+        // When generation starts, lock boundary size and initialize grid based on boundary
+        if (!gridInitialized) {
+            // Lock boundary size so it can't be resized during simulation
+            boundaryManager->lockBoundarySize();
+            
+            // Calculate grid dimensions from boundary size (add margin to ensure grid covers boundary)
+            const float boundaryWidth = boundaryManager->getBoundaryWidth();
+            const float boundaryDepth = boundaryManager->getBoundaryDepth();
+            const float boundaryHeight = boundaryManager->getBoundaryHeight();
+            
+            // Convert world units to grid units with a small margin
+            constexpr float gridMargin = 1.2f; // 20% margin
+            const size_t gridLength = static_cast<size_t>(boundaryWidth * gridMargin / OctahedronGrid::SQUARE_DISTANCE) + 10;
+            const size_t gridWidth = static_cast<size_t>(boundaryDepth * gridMargin / (OctahedronGrid::SQUARE_DISTANCE / 2)) + 10;
+            const size_t gridHeight = static_cast<size_t>(boundaryHeight * gridMargin / OctahedronGrid::SQUARE_DISTANCE) + 10;
+            
+            // Resize the grid
+            grid.resizeGrid(gridLength, gridHeight, gridWidth);
+            transforms.reserve(gridLength * gridWidth * gridHeight);
+            
+            gridInitialized = true;
+        }
 
         shouldStopThread = false;
         generationActive = true;
@@ -445,8 +469,7 @@ public:
 
         if (transforms.size() + newCellCount > transforms.is_visible.capacity()) {
             const size_t newCapacity = (transforms.size() + newCellCount) * 1.5;
-            transforms.is_visible.reserve(newCapacity);
-            transforms.neighbor_counts.reserve(newCapacity);
+            transforms.reserve(newCapacity);
         }
 
         constexpr size_t batchSize = 5000;
@@ -467,7 +490,7 @@ public:
 private:
     void generationThreadFunc() {
         while (!shouldStopThread) {
-            trySpawningNewOctahedra(0.0056f);
+            trySpawningNewOctahedra(0.56f);
 
             if (shouldStopThread) break;
 
@@ -490,7 +513,9 @@ private:
 
     // Boundary manager for controlling where octahedra can be placed
     std::shared_ptr<BoundaryManager> boundaryManager;
-
+    
+    // Tracks if grid has been initialized with boundary-based size
+    bool gridInitialized;
 
     const float SPAWN_CHANCE = 0.1f;
 };
