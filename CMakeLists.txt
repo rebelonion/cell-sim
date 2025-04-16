@@ -50,7 +50,17 @@ FetchContent_Declare(
         FIND_PACKAGE_ARGS
 )
 
-FetchContent_MakeAvailable(raylib)
+FetchContent_Declare(
+        raygui
+        DOWNLOAD_EXTRACT_TIMESTAMP OFF
+        URL https://github.com/raysan5/raygui/archive/refs/tags/4.0.tar.gz
+        FIND_PACKAGE_ARGS
+)
+
+FetchContent_MakeAvailable(raylib raygui)
+
+# Add include path for raygui
+include_directories(${raygui_SOURCE_DIR}/src)
 
 add_executable(${PROJECT_NAME} src/main.cpp
         src/MeshGenerator.h
@@ -58,6 +68,7 @@ add_executable(${PROJECT_NAME} src/main.cpp
         src/OctahedronGrid.h
         src/TruncatedOctahedraManager.h
         src/BoundaryManager.h
+        src/TransformData.h
 )
 add_subdirectory(src)
 

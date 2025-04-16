@@ -10,6 +10,8 @@
 #define RLIGHTS_IMPLEMENTATION
 #include "rlgl.h"
 #include "rlights.h"
+#define RAYGUI_IMPLEMENTATION
+#include "raygui.h"
 
 #if defined(PLATFORM_DESKTOP)
 #define GLSL_VERSION            330
@@ -49,8 +51,8 @@ int main() {
             CreateLight(LIGHT_POINT, (Vector3){lightRadius, lightHeight, -lightRadius}, Vector3Zero(), WHITE, shader);
 
     Camera3D camera = {};
-    camera.position = Vector3{200.0f, 200.0f, 200.0f};
-    camera.target = Vector3{0.0f, 0.0f, 0.0f};
+    camera.position = Vector3{-200.0f, 400.0f, -200.0f};
+    camera.target = Vector3{200.0f, 120.0f, 200.0f};
     camera.up = Vector3{0.0f, 1.0f, 0.0f};
     camera.fovy = 45.0f;
     camera.projection = CAMERA_PERSPECTIVE;
@@ -84,7 +86,7 @@ int main() {
 
         rotationAngle += LIGHT_ROTATION_SPEED * deltaTime;
 
-        /*lights[0].position = (Vector3){
+        lights[0].position = (Vector3){
             -lightRadius * cosf(rotationAngle),
             lightHeight,
             -lightRadius * sinf(rotationAngle)
@@ -103,11 +105,27 @@ int main() {
             lightRadius * cosf(rotationAngle - PI / 2),
             lightHeight,
             -lightRadius * sinf(rotationAngle - PI / 2)
-        };*/
+        };
         
         // Handle boundary resizing with arrow keys before simulation starts
         if (!octaManager.isGenerationActive()) {
             octaManager.handleBoundaryResizing();
+
+            if (IsKeyPressed(KEY_EQUAL) || IsKeyPressed(KEY_KP_ADD)) {
+                octaManager.setOctahedraSpacing(octaManager.getOctahedraSpacing() + 5.0f);
+            }
+            
+            if (IsKeyPressed(KEY_MINUS) || IsKeyPressed(KEY_KP_SUBTRACT)) {
+                octaManager.setOctahedraSpacing(std::max(5.0f, octaManager.getOctahedraSpacing() - 5.0f));
+            }
+
+            if (IsKeyPressed(KEY_LEFT_BRACKET)) {
+                octaManager.setOctahedraLayers(std::max(1, octaManager.getOctahedraLayers() - 1));
+            }
+            
+            if (IsKeyPressed(KEY_RIGHT_BRACKET)) {
+                octaManager.setOctahedraLayers(octaManager.getOctahedraLayers() + 1);
+            }
         }
 
         // Toggle cell generation thread
@@ -166,7 +184,7 @@ int main() {
         const float cameraPos[3] = {camera.position.x, camera.position.y, camera.position.z};
         SetShaderValue(shader, shader.locs[SHADER_LOC_VECTOR_VIEW], cameraPos, SHADER_UNIFORM_VEC3);
 
-        //for (const auto &light: lights) UpdateLightValues(shader, light);
+        for (const auto &light: lights) UpdateLightValues(shader, light);
 
         BeginDrawing(); {
             ClearBackground(GRAY);
@@ -175,10 +193,13 @@ int main() {
             }
             EndMode3D();
 
-
-            // Show minimal information when debug is off
             DrawFPS(10, 10);
-            DrawText(TextFormat("Octahedra: %zu", octaManager.getCount()), 10, 30, 20, BLACK);
+
+            if (octaManager.isGenerationActive() || octaManager.getCount() > 0) {
+                DrawText(TextFormat("Octahedra: %zu", octaManager.getCount()), 10, 30, 20, BLACK);
+            } else {
+                DrawText(TextFormat("Octahedra preview: %zu", octaManager.getStartingPositionCount()), 10, 30, 20, BLACK);
+            }
 
             if (octaManager.isGenerationActive()) {
                 DrawText("Generating new octahedra (background)...", 10, 70, 20, GREEN);
@@ -191,14 +212,17 @@ int main() {
             DrawText(TextFormat("Boundary constraint: %s", boundaryStatus),
                      10, 90, 20, octaManager.isBoundaryEnabled() ? GREEN : GRAY);
             DrawText("Press R to reset entire simulation", 10, GetScreenHeight() - 140, 18, DARKGRAY);
-            DrawText("Press D to toggle debug information", 10, GetScreenHeight() - 120, 18, DARKGRAY);
             DrawText("Press V to update visibility calculations", 10, GetScreenHeight() - 100, 18, DARKGRAY);
             DrawText("Press B to toggle boundary visibility", 10, GetScreenHeight() - 80, 18, DARKGRAY);
             DrawText("Press E to toggle boundary constraint", 10, GetScreenHeight() - 40, 18, DARKGRAY);
             
             // Show resize controls only when simulation is not running
             if (!octaManager.isGenerationActive()) {
-                DrawText("Use ARROW KEYS to resize boundary before starting simulation", 10, GetScreenHeight() - 20, 18, GREEN);
+                DrawText("Use ARROW KEYS to resize boundary before starting simulation", 10, GetScreenHeight() - 60, 18, GREEN);
+                DrawText(TextFormat("Octahedra spacing: %.1f (Use +/- keys to adjust)", octaManager.getOctahedraSpacing()), 
+                         10, GetScreenHeight() - 40, 18, GREEN);
+                DrawText(TextFormat("Octahedra layers: %d (Use [/] keys to adjust)", octaManager.getOctahedraLayers()),
+                         10, GetScreenHeight() - 20, 18, GREEN);
             }
         }
         EndDrawing();
