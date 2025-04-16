@@ -43,44 +43,27 @@ constexpr std::array<Color, 15> NEIGHBOR_COLORS = {
 };
 
 struct TransformData {
-    std::vector<float> positions_x;
-    std::vector<float> positions_y;
-    std::vector<float> positions_z;
     std::vector<bool> is_visible;
     std::vector<int> neighbor_counts;
 
     void reserve(const size_t n) {
-        positions_x.reserve(n);
-        positions_y.reserve(n);
-        positions_z.reserve(n);
         is_visible.reserve(n);
         neighbor_counts.reserve(n);
     }
 
-    void add(const Vector3 &pos) {
-        positions_x.push_back(pos.x);
-        positions_y.push_back(pos.y);
-        positions_z.push_back(pos.z);
+    void add() {
         is_visible.push_back(true);
         neighbor_counts.push_back(0); // Initially no neighbors
     }
 
-    [[nodiscard]] size_t size() const { return positions_x.size(); }
+    [[nodiscard]] size_t size() const { return is_visible.size(); }
 
-    [[nodiscard]] Matrix getTransform(const size_t index) const {
+    [[nodiscard]] Matrix getTransform(const size_t index, const Vector3 &position) const {
         return MatrixTranslate(
-            positions_x[index],
-            positions_y[index],
-            positions_z[index]
+            position.x,
+            position.y,
+            position.z
         );
-    }
-
-    [[nodiscard]] Vector3 getPosition(const size_t index) const {
-        return {
-            positions_x[index],
-            positions_y[index],
-            positions_z[index]
-        };
     }
 
     void setVisibility(const size_t index, bool visible) {
@@ -197,27 +180,17 @@ public:
         std::lock_guard lock(pendingChangesMutex);
         pendingNewPositions.clear();
 
-        // Unload all the colored models
         for (int i = 0; i < 15; i++) {
             UnloadModel(coloredModels[i]);
         }
     }
 
     void addOctahedron(const Vector3 &pos) {
-        // Check if position is inside the boundary (or if no boundary is set)
-        if (!grid.isOccupied(pos) && isWithinBoundary(pos)) {
-            //DEBUG: check if there are any transforms at this position within 0.1f using Vector3Distance
-            for (size_t i = 0; i < transforms.size(); i++) {
-                if (Vector3Distance(transforms.getPosition(i), pos) < 0.1f) {
-                    std::cerr << "Octahedron " << i << " already exists at position: "
-                              << pos.x << ", " << pos.y << ", " << pos.z << std::endl;
-                    auto isOccupied = grid.isOccupied(pos);
-                    std::cerr << "Grid isOccupied: " << isOccupied << std::endl;
-                }
-            }
+        if (const Vector3 snappedPos = OctahedronGrid::snapToGridPosition(pos);
+            !grid.isOccupied(snappedPos) && isWithinBoundary(snappedPos)) {
             const size_t index = transforms.size();
-            transforms.add(OctahedronGrid::snapToGridPosition(pos));
-            grid.insert(pos, index);
+            transforms.add();
+            grid.insert(snappedPos, index);
         }
     }
 
@@ -256,7 +229,7 @@ public:
     }
 
     void updateCellVisibility(const size_t idx) {
-        const Vector3 pos = transforms.getPosition(idx);
+        const Vector3 pos = grid.getPositionForIndex(idx);
         const auto neighbors = grid.getOccupiedNeighbors(pos);
 
         const int neighborCount = static_cast<int>(neighbors.size());
@@ -284,7 +257,7 @@ public:
             for (size_t i = 0; i < batchSize; i++) {
                 const auto &pos = newPositions[startIdx + i];
 
-                for (auto neighborPositions = grid.getNeighborPositions(pos, true); const auto &neighborPos:
+                for (auto neighborPositions = grid.getNeighborPositions(pos, false); const auto &neighborPos:
                      neighborPositions) {
                     if (size_t neighborIdx = grid.findCellIndex(neighborPos); neighborIdx != SIZE_MAX) {
                         processedNeighbors.insert(neighborIdx);
@@ -292,8 +265,8 @@ public:
                 }
             }
 
-            if (std::vector neighborIndices(processedNeighbors.begin(), processedNeighbors.end()); !neighborIndices.
-                empty()) {
+            std::vector neighborIndices(processedNeighbors.begin(), processedNeighbors.end());
+            if (!neighborIndices.empty()) {
                 std::for_each(
                     std::execution::par_unseq,
                     neighborIndices.begin(), neighborIndices.end(),
@@ -319,12 +292,13 @@ public:
         // Organize visible cells by neighbor count
         for (size_t i = 0; i < transforms.size(); i++) {
             if (transforms.isVisible(i)) {
+                Vector3 position = grid.getPositionForIndex(i);
                 int neighborCount = transforms.getNeighborCount(i);
 
                 // Ensure neighbor count is in valid range
                 neighborCount = std::clamp(neighborCount, 0, 14);
 
-                neighborCountMatrices[neighborCount].push_back(transforms.getTransform(i));
+                neighborCountMatrices[neighborCount].push_back(transforms.getTransform(i, position));
             }
         }
         // Render each group with its corresponding colored material
@@ -401,7 +375,7 @@ public:
             spawnIndices.begin(), spawnIndices.end(),
             [&](const size_t idx) {
                 thread_local std::mt19937 localGen(std::random_device{}());
-                Vector3 currentPos = transforms.getPosition(idx);
+                Vector3 currentPos = grid.getPositionForIndex(idx);
 
                 if (const auto available = getAvailableNeighborPositions(currentPos); !available.empty()) {
                     std::uniform_int_distribution<> posDis(0, available.size() - 1);
@@ -469,11 +443,8 @@ public:
 
         const size_t newCellCount = newPositionsToApply.size();
 
-        if (transforms.size() + newCellCount > transforms.positions_x.capacity()) {
+        if (transforms.size() + newCellCount > transforms.is_visible.capacity()) {
             const size_t newCapacity = (transforms.size() + newCellCount) * 1.5;
-            transforms.positions_x.reserve(newCapacity);
-            transforms.positions_y.reserve(newCapacity);
-            transforms.positions_z.reserve(newCapacity);
             transforms.is_visible.reserve(newCapacity);
             transforms.neighbor_counts.reserve(newCapacity);
         }
@@ -522,5 +493,4 @@ private:
 
 
     const float SPAWN_CHANCE = 0.1f;
-
 };
