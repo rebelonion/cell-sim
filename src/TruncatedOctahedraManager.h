@@ -5,7 +5,6 @@
 #include <execution>
 #include <mutex>
 #include <numeric>
-#include <unordered_map>
 #include <unordered_set>
 #include <thread>
 #include <atomic>
@@ -16,87 +15,31 @@
 #include <iostream>
 
 #include "raylib.h"
-#include "raymath.h"
 #include "OctahedronGrid.h"
 
 #include "BoundaryManager.h"
+#include "TransformData.h"
 
-// Colors for different neighbor counts (0-14)
-constexpr std::array<Color, 15> NEIGHBOR_COLORS = {{
-    BLUE,           // 0 neighbors
-    SKYBLUE,        // 1 neighbor
-    DARKBLUE,       // 2 neighbors
-    PURPLE,         // 3 neighbors
-    VIOLET,         // 4 neighbors
-    PINK,           // 5 neighbors
-    MAGENTA,        // 6 neighbors
-    MAROON,         // 7 neighbors
-    RED,            // 8 neighbors
-    ORANGE,         // 9 neighbors
-    GOLD,           // 10 neighbors
-    YELLOW,         // 11 neighbors
-    BEIGE,          // 12 neighbors
-    LIME,           // 13 neighbors
-    GREEN           // 14 neighbors (fully surrounded)
-}};
-
-struct TransformData {
-    std::vector<float> positions_x;
-    std::vector<float> positions_y;
-    std::vector<float> positions_z;
-    std::vector<bool> is_visible;
-    std::vector<int> neighbor_counts;
-
-    void reserve(const size_t n) {
-        positions_x.reserve(n);
-        positions_y.reserve(n);
-        positions_z.reserve(n);
-        is_visible.reserve(n);
-        neighbor_counts.reserve(n);
-    }
-
-    void add(const Vector3 &pos) {
-        positions_x.push_back(pos.x);
-        positions_y.push_back(pos.y);
-        positions_z.push_back(pos.z);
-        is_visible.push_back(true);
-        neighbor_counts.push_back(0); // Initially no neighbors
-    }
-
-    [[nodiscard]] size_t size() const { return positions_x.size(); }
-
-    [[nodiscard]] Matrix getTransform(const size_t index) const {
-        return MatrixTranslate(
-            positions_x[index],
-            positions_y[index],
-            positions_z[index]
-        );
-    }
-
-    [[nodiscard]] Vector3 getPosition(const size_t index) const {
-        return {
-            positions_x[index],
-            positions_y[index],
-            positions_z[index]
-        };
-    }
-
-    void setVisibility(const size_t index, bool visible) {
-        is_visible[index] = visible;
-    }
-
-    [[nodiscard]] bool isVisible(const size_t index) const {
-        return is_visible[index];
-    }
-    
-    void setNeighborCount(const size_t index, int count) {
-        neighbor_counts[index] = count;
-    }
-    
-    [[nodiscard]] int getNeighborCount(const size_t index) const {
-        return neighbor_counts[index];
+constexpr std::array<Color, 15> NEIGHBOR_COLORS = {
+    {
+        BLUE, // 0 neighbors
+        SKYBLUE, // 1 neighbor
+        DARKBLUE, // 2 neighbors
+        PURPLE, // 3 neighbors
+        VIOLET, // 4 neighbors
+        PINK, // 5 neighbors
+        MAGENTA, // 6 neighbors
+        MAROON, // 7 neighbors
+        RED, // 8 neighbors
+        ORANGE, // 9 neighbors
+        GOLD, // 10 neighbors
+        YELLOW, // 11 neighbors
+        BEIGE, // 12 neighbors
+        LIME, // 13 neighbors
+        GREEN // 14 neighbors (fully surrounded)
     }
 };
+
 
 class TruncatedOctahedraManager {
 public:
@@ -105,75 +48,108 @@ public:
           gen(std::random_device()()),
           generationActive(false),
           shouldStopThread(false),
-          boundaryManager(std::make_shared<BoundaryManager>()) {
-        
-        // Create models for each neighbor count with different colors
+          boundaryManager(std::make_shared<BoundaryManager>()),
+          gridInitialized(false),
+          octahedraSpacing(20.0f),
+          octahedraLayers(1) {
         setupColoredModels();
-        
-        transforms.reserve(5000000);
-        
-        // Generate between 2 and 5 random octahedra
-        std::uniform_int_distribution<int> countDist(2, 5);
-        int numOctahedra = countDist(gen);
-        
-        // Create widely separated starting positions
-        std::vector<Vector3> startingPositions;
-        
-        // Instead of fixed center, create octahedra in different quadrants/sectors
-        // Use larger range to spread them out more
-        std::uniform_real_distribution<float> spreadDist(30.0f, 70.0f);
-        std::uniform_real_distribution<float> yDist(-10.0f, 30.0f);
-        
-        // Generate random positions that are well-separated
-        for (int i = 0; i < numOctahedra; i++) {
-            // Generate coordinates with distance from origin
-            float dist = spreadDist(gen);
-            float angle = (2.0f * PI * i) / numOctahedra; // Evenly distribute around a circle
-            
-            // Convert to cartesian coordinates
-            Vector3 randomPos = {
-                dist * cosf(angle),
-                yDist(gen), // Random height
-                dist * sinf(angle)
-            };
-            
-            // Place octahedron only if within boundary
-            if (isWithinBoundary(randomPos)) {
-                startingPositions.push_back(randomPos);
-                addOctahedron(randomPos);
-            }
-        }
-        
-        // If no octahedra were placed (all outside boundary), place one at center
-        if (startingPositions.empty()) {
-            constexpr Vector3 center = {0.0f, 2.0f, 0.0f};
-            addOctahedron(center);
-        }
-        
-        // Initialize neighbor counts for all initial cells
-        for (size_t i = 0; i < transforms.size(); i++) {
-            updateCellVisibility(i);
+        transforms.reserve(1000);
+        startingPositions.reserve(1000);
+        generateStartingPositions();
+    }
+
+    void handleBoundaryResizing() {
+        const float oldWidth = boundaryManager->getBoundaryWidth();
+        const float oldDepth = boundaryManager->getBoundaryDepth();
+        const float oldHeight = boundaryManager->getBoundaryHeight();
+        boundaryManager->handleResizing();
+        const float newWidth = boundaryManager->getBoundaryWidth();
+        const float newDepth = boundaryManager->getBoundaryDepth();
+        const float newHeight = boundaryManager->getBoundaryHeight();
+
+        if (oldWidth != newWidth || oldDepth != newDepth || oldHeight != newHeight) {
+            generateStartingPositions();
         }
     }
-    
+
+    void generateStartingPositions() {
+        startingPositions.clear();
+        const float width = boundaryManager->getBoundaryWidth();
+        const float depth = boundaryManager->getBoundaryDepth();
+        const float height = boundaryManager->getBoundaryHeight();
+        const Vector3 center = boundaryManager->getBoundaryCenter();
+
+        const float horizontalSpacing = octahedraSpacing;
+        const float verticalSpacing = octahedraSpacing * 0.866025404f; // sqrt(3)/2
+
+        const float minX = center.x - width / 2 + horizontalSpacing / 2;
+        const float maxX = center.x + width / 2 - horizontalSpacing / 2;
+        const float minZ = center.z - depth / 2 + verticalSpacing / 2;
+        const float maxZ = center.z + depth / 2 - verticalSpacing / 2;
+
+        // Calculate Y position based on boundary center
+        const float minY = center.y - height / 2 + octahedraSpacing / 2;
+
+        // Calculate Y spacing for multiple layers if needed
+        float layerSpacing = octahedraLayers > 1 ? (height - octahedraSpacing) / (octahedraLayers - 1) : 0;
+        layerSpacing = std::max(layerSpacing, octahedraSpacing); // Ensure minimum spacing between layers
+
+        for (int layer = 0; layer < octahedraLayers; layer++) {
+            const float layerY = minY + layer * layerSpacing;
+            const float layerXOffset = (layer % 2) * horizontalSpacing * 0.25f;
+            const float layerZOffset = (layer % 3) * verticalSpacing * 0.25f;
+
+            for (float z = minZ + layerZOffset; z <= maxZ; z += verticalSpacing) {
+                const bool isOffsetRow = static_cast<int>((z - minZ) / verticalSpacing) % 2 == 1;
+                const float rowOffset = isOffsetRow ? horizontalSpacing * 0.5f : 0.0f;
+                for (float x = minX + rowOffset + layerXOffset; x <= maxX; x += horizontalSpacing) {
+                    const Vector3 position = {x, layerY, z};
+                    const Vector3 snappedPos = OctahedronGrid::snapToGridPosition(position);
+                    if (isWithinBoundary(snappedPos)) {
+                        startingPositions.push_back(snappedPos);
+                    }
+                }
+            }
+        }
+
+        // If no positions were generated, add center position as a fallback
+        if (startingPositions.empty()) {
+            const Vector3 centerPos = {center.x, center.y, center.z};
+            startingPositions.push_back(OctahedronGrid::snapToGridPosition(centerPos));
+        }
+    }
+
+    // Create octahedra based on the precomputed starting positions
+    void createInitialOctahedra() {
+        if (transforms.size() > 0) {
+            grid = OctahedronGrid();
+            transforms = TransformData();
+            transforms.reserve(5000000);
+        }
+
+        for (const auto &position: startingPositions) {
+            addOctahedron(position);
+        }
+
+        updateVisibility();
+    }
+
+    void resetOctahedra() {
+        createInitialOctahedra();
+    }
+
     // Create independent colored models for each neighbor count
     void setupColoredModels() {
         for (int i = 0; i < 15; i++) {
             // Create a new mesh for each model
-            Mesh mesh = MeshGenerator::genTruncatedOctahedron();
-            
-            // Create the model from the mesh
+            const Mesh mesh = MeshGenerator::genTruncatedOctahedron();
             coloredModels[i] = LoadModelFromMesh(mesh);
-            
-            // Assign a new material with the desired color
             Material newMaterial = LoadMaterialDefault();
             newMaterial.maps[MATERIAL_MAP_DIFFUSE].color = NEIGHBOR_COLORS[i];
             newMaterial.maps[MATERIAL_MAP_SPECULAR].color = WHITE;
             newMaterial.maps[MATERIAL_MAP_DIFFUSE].value = 1.0f;
             newMaterial.maps[MATERIAL_MAP_SPECULAR].value = 0.5f;
-            newMaterial.shader = material.shader;  // Use the same shader as the base material
-            
-            // Assign the material to the model
+            newMaterial.shader = material.shader; // Use the same shader as the base material
             coloredModels[i].materials[0] = newMaterial;
         }
     }
@@ -193,33 +169,24 @@ public:
 
         std::lock_guard lock(pendingChangesMutex);
         pendingNewPositions.clear();
-        
-        // Unload all the colored models
-        for (int i = 0; i < 15; i++) {
-            UnloadModel(coloredModels[i]);
-        }
     }
 
     void addOctahedron(const Vector3 &pos) {
-        // Check if position is inside the boundary (or if no boundary is set)
-        if (!grid.isOccupied(pos) && isWithinBoundary(pos)) {
+        if (const Vector3 snappedPos = OctahedronGrid::snapToGridPosition(pos);
+            !grid.isOccupied(snappedPos) && isWithinBoundary(snappedPos)) {
             const size_t index = transforms.size();
-            transforms.add(pos);
-            grid.insert(pos, index);
+            transforms.add();
+            grid.insert(snappedPos, index);
         }
     }
 
-    // Check if a position is within the current boundary
     [[nodiscard]] bool isWithinBoundary(const Vector3 &pos) const {
         return boundaryManager->isPointWithinBoundary(pos);
     }
 
     [[nodiscard]] std::vector<Vector3> getAvailableNeighborPositions(const Vector3 &pos) const {
-        auto [positions, squareFaces, hexagonFaces] = grid.getAvailableNeighborsWithStats(pos);
-        const_cast<TruncatedOctahedraManager *>(this)->totalSquareFacesAvailable += squareFaces;
-        const_cast<TruncatedOctahedraManager *>(this)->totalHexagonFacesAvailable += hexagonFaces;
+        auto positions = grid.getAvailableNeighbors(pos);
 
-        // Filter positions by boundary
         std::vector<Vector3> filteredPositions;
         filteredPositions.reserve(positions.size());
 
@@ -230,18 +197,6 @@ public:
         }
 
         return filteredPositions;
-    }
-
-    [[nodiscard]] std::vector<size_t> getNeighborCellIndices(const Vector3 &pos) const {
-        auto neighbors = grid.getOccupiedNeighbors(pos);
-        std::vector<size_t> indices;
-        indices.reserve(neighbors.size());
-
-        for (const auto &[cellIndex, position]: neighbors) {
-            indices.push_back(cellIndex);
-        }
-
-        return indices;
     }
 
     void updateVisibility() {
@@ -258,7 +213,7 @@ public:
     }
 
     void updateCellVisibility(const size_t idx) {
-        const Vector3 pos = transforms.getPosition(idx);
+        const Vector3 pos = grid.getPositionForIndex(idx);
         const auto neighbors = grid.getOccupiedNeighbors(pos);
 
         const int neighborCount = static_cast<int>(neighbors.size());
@@ -286,18 +241,16 @@ public:
             for (size_t i = 0; i < batchSize; i++) {
                 const auto &pos = newPositions[startIdx + i];
 
-                for (auto neighborPositions = OctahedronGrid::getNeighborPositions(pos); const auto &neighborPos:
+                for (auto neighborPositions = grid.getNeighborPositions(pos, false); const auto &neighborPos:
                      neighborPositions) {
-                    if (grid.isOccupied(neighborPos)) {
-                        if (size_t neighborIdx = grid.findCellIndex(neighborPos); neighborIdx != SIZE_MAX) {
-                            processedNeighbors.insert(neighborIdx);
-                        }
+                    if (size_t neighborIdx = grid.findCellIndex(neighborPos); neighborIdx != SIZE_MAX) {
+                        processedNeighbors.insert(neighborIdx);
                     }
                 }
             }
 
-            if (std::vector neighborIndices(processedNeighbors.begin(), processedNeighbors.end()); !neighborIndices.
-                empty()) {
+            std::vector neighborIndices(processedNeighbors.begin(), processedNeighbors.end());
+            if (!neighborIndices.empty()) {
                 std::for_each(
                     std::execution::par_unseq,
                     neighborIndices.begin(), neighborIndices.end(),
@@ -310,53 +263,75 @@ public:
     }
 
     void draw() const {
-        if (transforms.size() == 0) return;
-
-        constexpr size_t MAX_BATCH_SIZE = 100000;
+        // If we're in the pre-simulation state (no octahedra created yet), show a preview
+        if (transforms.size() == 0) {
+            if (!startingPositions.empty()) {
+                drawStartingPositionsPreview();
+            }
+            boundaryManager->draw();
+            return;
+        }
 
         // Group transforms by neighbor count (0-14)
         std::array<std::vector<Matrix>, 15> neighborCountMatrices;
-        for (auto& matrices : neighborCountMatrices) {
-            matrices.reserve(1000); // Initial reservation to avoid too many reallocations
+        for (auto &matrices: neighborCountMatrices) {
+            matrices.reserve(1000);
         }
 
         // Organize visible cells by neighbor count
         for (size_t i = 0; i < transforms.size(); i++) {
             if (transforms.isVisible(i)) {
+                Vector3 position = grid.getPositionForIndex(i);
                 int neighborCount = transforms.getNeighborCount(i);
-                
-                // Ensure neighbor count is in valid range
+
                 neighborCount = std::clamp(neighborCount, 0, 14);
-                
-                neighborCountMatrices[neighborCount].push_back(transforms.getTransform(i));
+                neighborCountMatrices[neighborCount].push_back(transforms.getTransform(i, position));
             }
         }
         // Render each group with its corresponding colored material
         for (int count = 0; count < 15; count++) {
-            const auto& matrices = neighborCountMatrices[count];
+            const auto &matrices = neighborCountMatrices[count];
             if (matrices.empty()) continue;
 
-            // Render in batches if needed
-            if (matrices.size() <= MAX_BATCH_SIZE) {
-                DrawMeshInstanced(coloredModels[count].meshes[0], coloredModels[count].materials[0], matrices.data(), matrices.size());
+            if (constexpr size_t MAX_BATCH_SIZE = 100000; matrices.size() <= MAX_BATCH_SIZE) {
+                DrawMeshInstanced(coloredModels[count].meshes[0], coloredModels[count].materials[0], matrices.data(),
+                                  matrices.size());
             } else {
                 for (size_t offset = 0; offset < matrices.size(); offset += MAX_BATCH_SIZE) {
-                    size_t batchSize = std::min(MAX_BATCH_SIZE, matrices.size() - offset);
-                    DrawMeshInstanced(coloredModels[count].meshes[0], coloredModels[count].materials[0], matrices.data() + offset, batchSize);
+                    const size_t batchSize = std::min(MAX_BATCH_SIZE, matrices.size() - offset);
+                    DrawMeshInstanced(coloredModels[count].meshes[0], coloredModels[count].materials[0],
+                                      matrices.data() + offset, batchSize);
                 }
             }
         }
 
-        // Draw boundary wireframe
         boundaryManager->draw();
+    }
+
+    void drawStartingPositionsPreview() const {
+        std::vector<Matrix> previewMatrices;
+        previewMatrices.reserve(startingPositions.size());
+
+        for (const auto &position: startingPositions) {
+            previewMatrices.push_back(TransformData::getTransform(0, position));
+        }
+
+        if (!previewMatrices.empty()) {
+            if (constexpr size_t MAX_BATCH_SIZE = 100000; previewMatrices.size() <= MAX_BATCH_SIZE) {
+                DrawMeshInstanced(coloredModels[0].meshes[0], coloredModels[0].materials[0], previewMatrices.data(),
+                                  previewMatrices.size());
+            } else {
+                for (size_t offset = 0; offset < previewMatrices.size(); offset += MAX_BATCH_SIZE) {
+                    const size_t batchSize = std::min(MAX_BATCH_SIZE, previewMatrices.size() - offset);
+                    DrawMeshInstanced(coloredModels[0].meshes[0], coloredModels[0].materials[0],
+                                      previewMatrices.data() + offset, batchSize);
+                }
+            }
+        }
     }
 
     void toggleBoundaryVisibility() const {
         boundaryManager->toggleVisibility();
-    }
-
-    void generateRandomBoundary() const {
-        boundaryManager->generateRandomBoundary();
     }
 
     void toggleBoundaryEnabled() const {
@@ -371,19 +346,34 @@ public:
         return transforms.size();
     }
 
-    [[nodiscard]] std::unordered_map<int, int> getNeighborStats() const {
-        std::unordered_map<int, int> neighborCounts;
-
-        for (size_t i = 0; i < transforms.size(); i++) {
-            int neighborCount = transforms.getNeighborCount(i);
-            neighborCounts[neighborCount]++;
-        }
-
-        return neighborCounts;
+    [[nodiscard]] size_t getStartingPositionCount() const {
+        return startingPositions.size();
     }
 
-    [[nodiscard]] std::tuple<size_t, size_t, size_t, double> getHashStats() const {
-        return grid.getHashStats();
+    void setOctahedraSpacing(const float spacing) {
+        if (spacing > 0.0f) {
+            octahedraSpacing = spacing;
+            if (!isGenerationActive()) {
+                generateStartingPositions();
+            }
+        }
+    }
+
+    [[nodiscard]] float getOctahedraSpacing() const {
+        return octahedraSpacing;
+    }
+
+    void setOctahedraLayers(const int layers) {
+        if (layers > 0) {
+            octahedraLayers = layers;
+            if (!isGenerationActive()) {
+                generateStartingPositions();
+            }
+        }
+    }
+
+    [[nodiscard]] int getOctahedraLayers() const {
+        return octahedraLayers;
     }
 
     void trySpawningNewOctahedra(const float deltaTime) {
@@ -399,7 +389,7 @@ public:
             shouldSpawn.begin(),
             [&](size_t idx) {
                 thread_local std::mt19937 localGen(std::random_device{}());
-                return dis(localGen) < SPAWN_CHANCE * deltaTime;
+                return dis(localGen) < SPAWN_CHANCE + deltaTime;
             }
         );
 
@@ -418,32 +408,11 @@ public:
             spawnIndices.begin(), spawnIndices.end(),
             [&](const size_t idx) {
                 thread_local std::mt19937 localGen(std::random_device{}());
-                Vector3 currentPos = transforms.getPosition(idx);
+                const Vector3 currentPos = grid.getPositionForIndex(idx);
 
                 if (const auto available = getAvailableNeighborPositions(currentPos); !available.empty()) {
                     std::uniform_int_distribution<> posDis(0, available.size() - 1);
                     const Vector3 newPos = available[posDis(localGen)];
-
-                    bool isSquareFace = false;
-
-                    float dx = std::abs(newPos.x - currentPos.x);
-                    float dy = std::abs(newPos.y - currentPos.y);
-                    float dz = std::abs(newPos.z - currentPos.z);
-
-                    if ((dx > 0 && dy < 0.1f && dz < 0.1f) ||
-                        (dx < 0.1f && dy > 0 && dz < 0.1f) ||
-                        (dx < 0.1f && dy < 0.1f && dz > 0)) {
-                        isSquareFace = true;
-                    }
-
-                    if (isSquareFace) {
-                        std::lock_guard lock(positionsMutex);
-                        squareFacePlacements++;
-                    } else {
-                        std::lock_guard lock(positionsMutex);
-                        hexagonFacePlacements++;
-                    }
-
                     std::lock_guard lock(positionsMutex);
                     newPositions.push_back(newPos);
                 }
@@ -462,9 +431,31 @@ public:
     void startGenerationThread() {
         if (generationActive) return;
 
+        if (!gridInitialized) {
+            // Lock boundary size so it can't be resized during simulation
+            boundaryManager->lockBoundarySize();
+
+            const float boundaryWidth = boundaryManager->getBoundaryWidth();
+            const float boundaryDepth = boundaryManager->getBoundaryDepth();
+            const float boundaryHeight = boundaryManager->getBoundaryHeight();
+
+            constexpr float gridMargin = 1.2f; // 20% margin
+            const size_t gridLength = static_cast<size_t>(boundaryWidth * gridMargin / OctahedronGrid::SQUARE_DISTANCE)
+                                      + 10;
+            const size_t gridHeight = static_cast<size_t>(
+                                          boundaryDepth * gridMargin / (OctahedronGrid::SQUARE_DISTANCE / 2)) + 10;
+            const size_t gridWidth = static_cast<size_t>(boundaryHeight * gridMargin / OctahedronGrid::SQUARE_DISTANCE)
+                                     + 10;
+
+            grid.resizeGrid(gridLength, gridWidth, gridHeight);
+            transforms.reserve(gridLength * gridHeight * gridWidth);
+            gridInitialized = true;
+
+            createInitialOctahedra();
+        }
+
         shouldStopThread = false;
         generationActive = true;
-
         if (generationThread.joinable()) {
             generationThread.join();
         }
@@ -484,6 +475,7 @@ public:
             try {
                 generationThread.join();
             } catch (const std::exception &e) {
+                std::cerr << e.what() << std::endl;
             }
         } {
             std::lock_guard lock(pendingChangesMutex);
@@ -497,7 +489,7 @@ public:
 
     void applyPendingChanges() {
         std::vector<Vector3> newPositionsToApply; {
-            std::lock_guard<std::mutex> lock(pendingChangesMutex);
+            std::lock_guard lock(pendingChangesMutex);
             if (pendingNewPositions.empty()) {
                 return;
             }
@@ -507,14 +499,9 @@ public:
 
         const size_t newCellCount = newPositionsToApply.size();
 
-        size_t expectedNewSize = transforms.size() + newCellCount;
-        if (transforms.size() + newCellCount > transforms.positions_x.capacity()) {
+        if (transforms.size() + newCellCount > transforms.is_visible.capacity()) {
             const size_t newCapacity = (transforms.size() + newCellCount) * 1.5;
-            transforms.positions_x.reserve(newCapacity);
-            transforms.positions_y.reserve(newCapacity);
-            transforms.positions_z.reserve(newCapacity);
-            transforms.is_visible.reserve(newCapacity);
-            transforms.neighbor_counts.reserve(newCapacity);
+            transforms.reserve(newCapacity);
         }
 
         constexpr size_t batchSize = 5000;
@@ -535,96 +522,11 @@ public:
 private:
     void generationThreadFunc() {
         while (!shouldStopThread) {
-            //generateCellBatch();
-            trySpawningNewOctahedra(0.16f);
+            trySpawningNewOctahedra(0.56f);
 
             if (shouldStopThread) break;
 
             std::this_thread::yield();
-        }
-    }
-
-    void generateCellBatch() {
-        size_t totalSize; {
-            std::lock_guard<std::mutex> lock(pendingChangesMutex);
-            totalSize = transforms.size();
-        }
-
-        if (totalSize == 0) return;
-
-        size_t baseBatchSize = 5000;
-
-        if (totalSize > 10000) {
-            baseBatchSize = 5000 + static_cast<size_t>(5.0 * std::pow(totalSize / 10000.0, 2.0 / 3.0) * 1000);
-        }
-
-        const size_t batchSize = std::min(totalSize, std::min(baseBatchSize, static_cast<size_t>(100000)));
-
-        std::vector<size_t> indices(batchSize); {
-            std::uniform_int_distribution<size_t> indexDist(0, totalSize - 1);
-            for (size_t i = 0; i < batchSize; i++) {
-                indices[i] = indexDist(gen);
-            }
-        }
-
-        std::vector<bool> shouldSpawn(batchSize);
-        std::uniform_real_distribution spawnDist(0.0f, 1.0f);
-
-        for (size_t i = 0; i < batchSize; i++) {
-            shouldSpawn[i] = spawnDist(gen) < SPAWN_CHANCE;
-        }
-
-        std::vector<size_t> spawnIndices;
-        spawnIndices.reserve(batchSize / 10);
-
-        for (size_t i = 0; i < batchSize; i++) {
-            if (shouldSpawn[i]) spawnIndices.push_back(indices[i]);
-        }
-
-        std::vector<Vector3> newLocalPositions;
-        newLocalPositions.reserve(spawnIndices.size());
-
-        for (const auto &idx: spawnIndices) {
-            if (idx >= totalSize) continue;
-
-            Vector3 currentPos; {
-                std::lock_guard<std::mutex> lock(pendingChangesMutex);
-                if (idx >= transforms.size()) continue;
-                currentPos = transforms.getPosition(idx);
-            }
-
-            const auto available = getAvailableNeighborPositions(currentPos);
-            if (!available.empty()) {
-                std::uniform_int_distribution<size_t> posDis(0, available.size() - 1);
-                const Vector3 newPos = available[posDis(gen)];
-
-                float dx = std::abs(newPos.x - currentPos.x);
-                float dy = std::abs(newPos.y - currentPos.y);
-                float dz = std::abs(newPos.z - currentPos.z);
-
-                bool isSquareFace = (dx > 0 && dy < 0.1f && dz < 0.1f) ||
-                                    (dx < 0.1f && dy > 0 && dz < 0.1f) ||
-                                    (dx < 0.1f && dy < 0.1f && dz > 0);
-
-                if (isSquareFace) {
-                    std::lock_guard<std::mutex> lock(pendingChangesMutex);
-                    squareFacePlacements++;
-                } else {
-                    std::lock_guard<std::mutex> lock(pendingChangesMutex);
-                    hexagonFacePlacements++;
-                }
-
-                newLocalPositions.push_back(newPos);
-            }
-        }
-
-        if (!newLocalPositions.empty()) {
-            std::lock_guard<std::mutex> lock(pendingChangesMutex);
-            pendingNewPositions.insert(
-                pendingNewPositions.end(),
-                newLocalPositions.begin(),
-                newLocalPositions.end()
-            );
         }
     }
 
@@ -640,112 +542,11 @@ private:
     std::atomic<bool> shouldStopThread;
     std::mutex pendingChangesMutex;
     std::vector<Vector3> pendingNewPositions;
-
-    // Boundary manager for controlling where octahedra can be placed
     std::shared_ptr<BoundaryManager> boundaryManager;
 
-    size_t squareFacePlacements = 0;
-    size_t hexagonFacePlacements = 0;
-
-    size_t totalSquareFacesAvailable = 0;
-    size_t totalHexagonFacesAvailable = 0;
-
+    bool gridInitialized;
     const float SPAWN_CHANCE = 0.1f;
-
-public:
-    [[nodiscard]] std::pair<size_t, size_t> getPlacementStats() const {
-        return {squareFacePlacements, hexagonFacePlacements};
-    }
-
-    [[nodiscard]] std::pair<size_t, size_t> getAvailabilityStats() const {
-        return {totalSquareFacesAvailable, totalHexagonFacesAvailable};
-    }
-
-    [[nodiscard]] std::pair<size_t, size_t> getVisibilityStats() const {
-        size_t visible = 0;
-        size_t hidden = 0;
-
-        for (size_t i = 0; i < transforms.size(); i++) {
-            if (transforms.isVisible(i)) {
-                visible++;
-            } else {
-                hidden++;
-            }
-        }
-
-        return {visible, hidden};
-    }
-
-    void resetPlacementStats() {
-        squareFacePlacements = 0;
-        hexagonFacePlacements = 0;
-        totalSquareFacesAvailable = 0;
-        totalHexagonFacesAvailable = 0;
-    }
-
-    // Reset the entire simulation to its initial state
-    void resetSimulation() {
-        // Stop the generation thread if it's running
-        if (generationActive) {
-            stopGenerationThread();
-        }
-
-        // Clear all octahedra
-        {
-            std::lock_guard<std::mutex> lock(pendingChangesMutex);
-            transforms = TransformData();
-            transforms.reserve(5000000);
-            grid = OctahedronGrid();
-            pendingNewPositions.clear();
-        }
-
-        // Reset all statistics
-        resetPlacementStats();
-
-        // Generate a new random boundary
-        boundaryManager->generateRandomBoundary();
-        
-        // Generate between 2 and 5 random octahedra
-        std::uniform_int_distribution<int> countDist(2, 5);
-        int numOctahedra = countDist(gen);
-        
-        // Create widely separated starting positions
-        std::vector<Vector3> startingPositions;
-        
-        // Instead of fixed center, create octahedra in different quadrants/sectors
-        // Use larger range to spread them out more
-        std::uniform_real_distribution<float> spreadDist(30.0f, 70.0f);
-        std::uniform_real_distribution<float> yDist(-10.0f, 30.0f);
-        
-        // Generate random positions that are well-separated
-        for (int i = 0; i < numOctahedra; i++) {
-            // Generate coordinates with distance from origin
-            float dist = spreadDist(gen);
-            float angle = (2.0f * PI * i) / numOctahedra; // Evenly distribute around a circle
-            
-            // Convert to cartesian coordinates
-            Vector3 randomPos = {
-                dist * cosf(angle),
-                yDist(gen), // Random height
-                dist * sinf(angle)
-            };
-            
-            // Place octahedron only if within boundary
-            if (isWithinBoundary(randomPos)) {
-                startingPositions.push_back(randomPos);
-                addOctahedron(randomPos);
-            }
-        }
-        
-        // If no octahedra were placed (all outside boundary), place one at center
-        if (startingPositions.empty()) {
-            constexpr Vector3 center = {0.0f, 2.0f, 0.0f};
-            addOctahedron(center);
-        }
-        
-        // Initialize neighbor counts for all initial cells
-        for (size_t i = 0; i < transforms.size(); i++) {
-            updateCellVisibility(i);
-        }
-    }
+    float octahedraSpacing;
+    int octahedraLayers;
+    std::vector<Vector3> startingPositions;
 };

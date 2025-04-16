@@ -8,8 +8,11 @@ include(FetchContent)
 # Generate compile_commands.json
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# -O3
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
+if (CMAKE_BUILD_TYPE MATCHES Release)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
+else ()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0")
+endif ()
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native -mtune=native")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffast-math -funroll-loops")
 
@@ -35,10 +38,10 @@ endif ()
 
 set(RAYLIB_VERSION 5.5)
 set(PLATFORM "SDL" CACHE STRING "Platform for raylib")
-if(UNIX AND NOT APPLE)
+if (UNIX AND NOT APPLE)
     set(GLFW_BUILD_WAYLAND ON CACHE BOOL "" FORCE)
     set(GLFW_BUILD_X11 ON CACHE BOOL "" FORCE)
-endif()
+endif ()
 
 FetchContent_Declare(
         raylib
@@ -47,7 +50,17 @@ FetchContent_Declare(
         FIND_PACKAGE_ARGS
 )
 
-FetchContent_MakeAvailable(raylib)
+FetchContent_Declare(
+        raygui
+        DOWNLOAD_EXTRACT_TIMESTAMP OFF
+        URL https://github.com/raysan5/raygui/archive/refs/tags/4.0.tar.gz
+        FIND_PACKAGE_ARGS
+)
+
+FetchContent_MakeAvailable(raylib raygui)
+
+# Add include path for raygui
+include_directories(${raygui_SOURCE_DIR}/src)
 
 add_executable(${PROJECT_NAME} src/main.cpp
         src/MeshGenerator.h
@@ -55,6 +68,7 @@ add_executable(${PROJECT_NAME} src/main.cpp
         src/OctahedronGrid.h
         src/TruncatedOctahedraManager.h
         src/BoundaryManager.h
+        src/TransformData.h
 )
 add_subdirectory(src)
 
@@ -77,4 +91,4 @@ if (APPLE)
     target_link_libraries(${PROJECT_NAME} "-framework IOKit")
     target_link_libraries(${PROJECT_NAME} "-framework Cocoa")
     target_link_libraries(${PROJECT_NAME} "-framework OpenGL")
-endif()
+endif ()

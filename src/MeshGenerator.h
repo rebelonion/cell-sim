@@ -15,15 +15,16 @@ public:
         };
     }
 
-    static Vector3 Vector3Normalize(Vector3 v) {
-        float length = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+    static Vector3 Vector3Normalize(const Vector3 v) {
+        const float length = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
         if (length == 0) return v;
         return {v.x / length, v.y / length, v.z / length};
     }
 
-    static Vector3 Vector3Subtract(Vector3 v1, Vector3 v2) {
+    static Vector3 Vector3Subtract(const Vector3 v1, const Vector3 v2) {
         return {v1.x - v2.x, v1.y - v2.y, v1.z - v2.z};
     }
+
     static Mesh genTruncatedOctahedron() {
         const float sqrt2 = sqrtf(2.0f);
 
@@ -31,40 +32,40 @@ public:
 
         // Square faces first
         // Top square (y = 2√2)
-        vertices.push_back({0, 2*sqrt2, sqrt2});      // 0: (0, 2√2, √2)
-        vertices.push_back({0, 2*sqrt2, -sqrt2});     // 1: (0, 2√2, -√2)
-        vertices.push_back({sqrt2, 2*sqrt2, 0});      // 2: (√2, 2√2, 0)
-        vertices.push_back({-sqrt2, 2*sqrt2, 0});     // 3: (-√2, 2√2, 0)
+        vertices.push_back({0, 2 * sqrt2, sqrt2}); // 0: (0, 2√2, √2)
+        vertices.push_back({0, 2 * sqrt2, -sqrt2}); // 1: (0, 2√2, -√2)
+        vertices.push_back({sqrt2, 2 * sqrt2, 0}); // 2: (√2, 2√2, 0)
+        vertices.push_back({-sqrt2, 2 * sqrt2, 0}); // 3: (-√2, 2√2, 0)
 
         // Bottom square (y = -2√2)
-        vertices.push_back({0, -2*sqrt2, -sqrt2});    // 4: (0, -2√2, -√2)
-        vertices.push_back({0, -2*sqrt2, sqrt2});     // 5: (0, -2√2, √2)
-        vertices.push_back({sqrt2, -2*sqrt2, 0});     // 6: (√2, -2√2, 0)
-        vertices.push_back({-sqrt2, -2*sqrt2, 0});    // 7: (-√2, -2√2, 0)
+        vertices.push_back({0, -2 * sqrt2, -sqrt2}); // 4: (0, -2√2, -√2)
+        vertices.push_back({0, -2 * sqrt2, sqrt2}); // 5: (0, -2√2, √2)
+        vertices.push_back({sqrt2, -2 * sqrt2, 0}); // 6: (√2, -2√2, 0)
+        vertices.push_back({-sqrt2, -2 * sqrt2, 0}); // 7: (-√2, -2√2, 0)
 
         // Front square (z = 2√2)
-        vertices.push_back({0, -sqrt2, 2*sqrt2});     // 8: (0, -√2, 2√2)
-        vertices.push_back({0, sqrt2, 2*sqrt2});      // 9: (0, √2, 2√2)
-        vertices.push_back({sqrt2, 0, 2*sqrt2});      // 10: (√2, 0, 2√2)
-        vertices.push_back({-sqrt2, 0, 2*sqrt2});     // 11: (-√2, 0, 2√2)
+        vertices.push_back({0, -sqrt2, 2 * sqrt2}); // 8: (0, -√2, 2√2)
+        vertices.push_back({0, sqrt2, 2 * sqrt2}); // 9: (0, √2, 2√2)
+        vertices.push_back({sqrt2, 0, 2 * sqrt2}); // 10: (√2, 0, 2√2)
+        vertices.push_back({-sqrt2, 0, 2 * sqrt2}); // 11: (-√2, 0, 2√2)
 
         // Back square (z = -2√2)
-        vertices.push_back({0, sqrt2, -2*sqrt2});     // 12: (0, √2, -2√2)
-        vertices.push_back({0, -sqrt2, -2*sqrt2});    // 13: (0, -√2, -2√2)
-        vertices.push_back({sqrt2, 0, -2*sqrt2});     // 14: (√2, 0, -2√2)
-        vertices.push_back({-sqrt2, 0, -2*sqrt2});    // 15: (-√2, 0, -2√2)
+        vertices.push_back({0, sqrt2, -2 * sqrt2}); // 12: (0, √2, -2√2)
+        vertices.push_back({0, -sqrt2, -2 * sqrt2}); // 13: (0, -√2, -2√2)
+        vertices.push_back({sqrt2, 0, -2 * sqrt2}); // 14: (√2, 0, -2√2)
+        vertices.push_back({-sqrt2, 0, -2 * sqrt2}); // 15: (-√2, 0, -2√2)
 
         // Right square (x = 2√2)
-        vertices.push_back({2*sqrt2, sqrt2, 0});      // 16: (2√2, √2, 0)
-        vertices.push_back({2*sqrt2, -sqrt2, 0});     // 17: (2√2, -√2, 0)
-        vertices.push_back({2*sqrt2, 0, sqrt2});      // 18: (2√2, 0, √2)
-        vertices.push_back({2*sqrt2, 0, -sqrt2});     // 19: (2√2, 0, -√2)
+        vertices.push_back({2 * sqrt2, sqrt2, 0}); // 16: (2√2, √2, 0)
+        vertices.push_back({2 * sqrt2, -sqrt2, 0}); // 17: (2√2, -√2, 0)
+        vertices.push_back({2 * sqrt2, 0, sqrt2}); // 18: (2√2, 0, √2)
+        vertices.push_back({2 * sqrt2, 0, -sqrt2}); // 19: (2√2, 0, -√2)
 
         // Left square (x = -2√2)
-        vertices.push_back({-2*sqrt2, -sqrt2, 0});    // 20: (-2√2, -√2, 0)
-        vertices.push_back({-2*sqrt2, sqrt2, 0});     // 21: (-2√2, √2, 0)
-        vertices.push_back({-2*sqrt2, 0, sqrt2});     // 22: (-2√2, 0, √2)
-        vertices.push_back({-2*sqrt2, 0, -sqrt2});    // 23: (-2√2, 0, -√2)
+        vertices.push_back({-2 * sqrt2, -sqrt2, 0}); // 20: (-2√2, -√2, 0)
+        vertices.push_back({-2 * sqrt2, sqrt2, 0}); // 21: (-2√2, √2, 0)
+        vertices.push_back({-2 * sqrt2, 0, sqrt2}); // 22: (-2√2, 0, √2)
+        vertices.push_back({-2 * sqrt2, 0, -sqrt2}); // 23: (-2√2, 0, -√2)
 
         // The hexagon should use these existing vertices in the correct order:
         // 0: (0, 2√2, √2)     - from top square
@@ -77,7 +78,7 @@ public:
         // Calculate mesh data
         Mesh mesh = {};
         mesh.vertexCount = static_cast<int>(vertices.size());
-        mesh.triangleCount = (24 / 4) * 2 + 32;  // Square faces (6*2 triangles) + 8 hexagons (4 triangles each)
+        mesh.triangleCount = (24 / 4) * 2 + 32; // Square faces (6*2 triangles) + 8 hexagons (4 triangles each)
 
         // Allocate mesh data
         mesh.vertices = static_cast<float *>(MemAlloc(mesh.vertexCount * 3 * sizeof(float)));
@@ -98,11 +99,11 @@ public:
         for (int face = 0; face < 6; face++) {
             int baseVertex = face * 4;
 
-            mesh.indices[indexCount++] = baseVertex + 2;  // First triangle
+            mesh.indices[indexCount++] = baseVertex + 2; // First triangle
             mesh.indices[indexCount++] = baseVertex + 1;
             mesh.indices[indexCount++] = baseVertex + 3;
 
-            mesh.indices[indexCount++] = baseVertex;      // Second triangle
+            mesh.indices[indexCount++] = baseVertex; // Second triangle
             mesh.indices[indexCount++] = baseVertex + 2;
             mesh.indices[indexCount++] = baseVertex + 3;
         }
@@ -264,23 +265,23 @@ public:
             // Calculate face normal
             Vector3 edge1 = Vector3Subtract(v2, v1);
             Vector3 edge2 = Vector3Subtract(v3, v1);
-            Vector3 normal = Vector3Normalize(Vector3Cross(edge1, edge2));
+            auto [x, y, z] = Vector3Normalize(Vector3Cross(edge1, edge2));
 
             // Add to the normal sum for each vertex
             normalSum[idx1] = {
-                normalSum[idx1].x + normal.x,
-                normalSum[idx1].y + normal.y,
-                normalSum[idx1].z + normal.z
+                normalSum[idx1].x + x,
+                normalSum[idx1].y + y,
+                normalSum[idx1].z + z
             };
             normalSum[idx2] = {
-                normalSum[idx2].x + normal.x,
-                normalSum[idx2].y + normal.y,
-                normalSum[idx2].z + normal.z
+                normalSum[idx2].x + x,
+                normalSum[idx2].y + y,
+                normalSum[idx2].z + z
             };
             normalSum[idx3] = {
-                normalSum[idx3].x + normal.x,
-                normalSum[idx3].y + normal.y,
-                normalSum[idx3].z + normal.z
+                normalSum[idx3].x + x,
+                normalSum[idx3].y + y,
+                normalSum[idx3].z + z
             };
 
             normalCount[idx1]++;
@@ -306,10 +307,10 @@ public:
             mesh.texcoords[i * 2 + 1] = 0.0f;
 
             // Set default colors (white)
-            mesh.colors[i * 4] = 255;      // R
-            mesh.colors[i * 4 + 1] = 255;  // G
-            mesh.colors[i * 4 + 2] = 255;  // B
-            mesh.colors[i * 4 + 3] = 255;  // A
+            mesh.colors[i * 4] = 255; // R
+            mesh.colors[i * 4 + 1] = 255; // G
+            mesh.colors[i * 4 + 2] = 255; // B
+            mesh.colors[i * 4 + 3] = 255; // A
         }
 
         UploadMesh(&mesh, false);
