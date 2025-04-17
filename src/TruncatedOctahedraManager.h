@@ -163,12 +163,8 @@ public:
 
         if (generationThread.joinable()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            std::lock_guard lock(pendingChangesMutex);
             generationThread.join();
         }
-
-        std::lock_guard lock(pendingChangesMutex);
-        pendingNewPositions.clear();
     }
 
     void addOctahedron(const Vector3 &pos) {
@@ -376,7 +372,15 @@ public:
         return octahedraLayers;
     }
 
-    void trySpawningNewOctahedra(const float deltaTime) {
+    void setSpawnChance(float chance) {
+        spawnChance = std::max(0.01f, std::min(1.0f, chance));
+    }
+    
+    [[nodiscard]] float getSpawnChance() const {
+        return spawnChance;
+    }
+    
+    void trySpawningNewOctahedra(const std::function<void()> &tick) {
         const size_t totalSize = transforms.size();
         std::vector<bool> shouldSpawn(totalSize);
         std::vector<size_t> indices(totalSize);
@@ -389,7 +393,7 @@ public:
             shouldSpawn.begin(),
             [&](size_t idx) {
                 thread_local std::mt19937 localGen(std::random_device{}());
-                return dis(localGen) < SPAWN_CHANCE + deltaTime;
+                return dis(localGen) < spawnChance;
             }
         );
 
@@ -426,9 +430,12 @@ public:
         if (!newPositions.empty()) {
             updateVisibilityForNewCells(newPositions);
         }
+        if (tick) {
+            tick();
+        }
     }
 
-    void startGenerationThread() {
+    void startGenerationThread(std::function<void()> tick = nullptr) {
         if (generationActive) return;
 
         if (!gridInitialized) {
@@ -442,13 +449,13 @@ public:
             constexpr float gridMargin = 1.2f; // 20% margin
             const size_t gridLength = static_cast<size_t>(boundaryWidth * gridMargin / OctahedronGrid::SQUARE_DISTANCE)
                                       + 10;
-            const size_t gridHeight = static_cast<size_t>(
-                                          boundaryDepth * gridMargin / (OctahedronGrid::SQUARE_DISTANCE / 2)) + 10;
-            const size_t gridWidth = static_cast<size_t>(boundaryHeight * gridMargin / OctahedronGrid::SQUARE_DISTANCE)
+            const size_t gridDepth = static_cast<size_t>(
+                                          boundaryDepth * gridMargin / OctahedronGrid::SQUARE_DISTANCE) + 10;
+            const size_t gridHeight = static_cast<size_t>(boundaryHeight * gridMargin / (OctahedronGrid::SQUARE_DISTANCE / 2))
                                      + 10;
 
-            grid.resizeGrid(gridLength, gridWidth, gridHeight);
-            transforms.reserve(gridLength * gridHeight * gridWidth);
+            grid.resizeGrid(gridLength, gridDepth, gridHeight);
+            transforms.reserve(gridLength * gridHeight * gridDepth);
             gridInitialized = true;
 
             createInitialOctahedra();
@@ -460,16 +467,16 @@ public:
             generationThread.join();
         }
 
-        generationThread = std::thread(&TruncatedOctahedraManager::generationThreadFunc, this);
+        generationThread = std::thread([this, tick]() {
+            generationThreadFunc(tick);
+        });
     }
 
     void stopGenerationThread() {
         if (!generationActive) return;
 
         shouldStopThread = true;
-        generationActive = false; {
-            std::lock_guard<std::mutex> lock(pendingChangesMutex);
-        }
+        generationActive = false;
 
         if (generationThread.joinable()) {
             try {
@@ -477,9 +484,6 @@ public:
             } catch (const std::exception &e) {
                 std::cerr << e.what() << std::endl;
             }
-        } {
-            std::lock_guard lock(pendingChangesMutex);
-            pendingNewPositions.clear();
         }
     }
 
@@ -487,44 +491,20 @@ public:
         return generationActive;
     }
 
-    void applyPendingChanges() {
-        std::vector<Vector3> newPositionsToApply; {
-            std::lock_guard lock(pendingChangesMutex);
-            if (pendingNewPositions.empty()) {
-                return;
-            }
-            newPositionsToApply = std::move(pendingNewPositions);
-            pendingNewPositions.clear();
-        }
-
-        const size_t newCellCount = newPositionsToApply.size();
-
-        if (transforms.size() + newCellCount > transforms.is_visible.capacity()) {
-            const size_t newCapacity = (transforms.size() + newCellCount) * 1.5;
-            transforms.reserve(newCapacity);
-        }
-
-        constexpr size_t batchSize = 5000;
-        const size_t numBatches = (newCellCount + batchSize - 1) / batchSize;
-
-        for (size_t batch = 0; batch < numBatches; batch++) {
-            const size_t startIdx = batch * batchSize;
-            const size_t endIdx = std::min(startIdx + batchSize, newCellCount);
-
-            for (size_t i = startIdx; i < endIdx; i++) {
-                addOctahedron(newPositionsToApply[i]);
-            }
-        }
-
-        updateVisibilityForNewCells(newPositionsToApply);
-    }
-
 private:
-    void generationThreadFunc() {
+    void generationThreadFunc(const std::function<void()> &tick) {
+        constexpr float minimumTickInterval = 0.1f;
         while (!shouldStopThread) {
-            trySpawningNewOctahedra(0.56f);
-
+            auto start = std::chrono::high_resolution_clock::now();
+            trySpawningNewOctahedra(tick);
+            updateVisibility();
             if (shouldStopThread) break;
+            auto end = std::chrono::high_resolution_clock::now();
+            std::chrono::duration<float> duration = end - start;
+            float elapsedTime = duration.count();
+            if (elapsedTime < minimumTickInterval) {
+                std::this_thread::sleep_for(std::chrono::duration<float>(minimumTickInterval - elapsedTime));
+            }
 
             std::this_thread::yield();
         }
@@ -540,12 +520,10 @@ private:
     std::thread generationThread;
     std::atomic<bool> generationActive;
     std::atomic<bool> shouldStopThread;
-    std::mutex pendingChangesMutex;
-    std::vector<Vector3> pendingNewPositions;
     std::shared_ptr<BoundaryManager> boundaryManager;
 
     bool gridInitialized;
-    const float SPAWN_CHANCE = 0.1f;
+    float spawnChance = 0.1f; // Default spawn chance
     float octahedraSpacing;
     int octahedraLayers;
     std::vector<Vector3> startingPositions;

@@ -69,6 +69,7 @@ add_executable(${PROJECT_NAME} src/main.cpp
         src/TruncatedOctahedraManager.h
         src/BoundaryManager.h
         src/TransformData.h
+        src/StemCellGUI.h
 )
 add_subdirectory(src)
 

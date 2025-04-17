@@ -1,6 +1,8 @@
 #include <random>
 #include <unordered_map>
 #include <tuple>
+#include <cmath>
+#include <algorithm>
 
 #include "raylib.h"
 #include "raymath.h"
@@ -10,8 +12,13 @@
 #define RLIGHTS_IMPLEMENTATION
 #include "rlgl.h"
 #include "rlights.h"
+
+// Implementation of the Stem Cell GUI
+
 #define RAYGUI_IMPLEMENTATION
 #include "raygui.h"
+#define STEMCELL_GUI_IMPLEMENTATION
+#include "StemCellGUI.h"
 
 #if defined(PLATFORM_DESKTOP)
 #define GLSL_VERSION            330
@@ -19,11 +26,31 @@
 #define GLSL_VERSION            100
 #endif
 
+// Constants for unit conversion
+// An octahedron is 0.0866mm wide, and in our 3D world it's 2.0f * 2.82842712475f
+constexpr float OCTAHEDRON_REAL_SIZE_MM = 0.0866f;
+constexpr float OCTAHEDRON_WORLD_SIZE = 2.0f * 2.82842712475f;
+constexpr float MM_TO_WORLD_SCALE = OCTAHEDRON_WORLD_SIZE / OCTAHEDRON_REAL_SIZE_MM;
+
+
+float calculateOptimalSpacing(
+    const float targetSimTime,
+    const float cellSplitTime,
+    const float completionPercent,
+    const float spawnChance
+) {
+    const float effectiveCellSplitTime = cellSplitTime / spawnChance;
+    const float distance = (targetSimTime / effectiveCellSplitTime);
+    return std::max(OCTAHEDRON_WORLD_SIZE, distance);
+}
 
 int main() {
     constexpr int screenWidth = 800 * 2;
     constexpr int screenHeight = 450 * 2;
-    InitWindow(screenWidth, screenHeight, "3D Outline Shader");
+    InitWindow(screenWidth, screenHeight, "Stem Cell Simulator");
+
+    // Initialize the GUI
+    StemCellGUIState guiState = InitStemCellGUI();
 
     // Load and configure the instancing shader
     const Shader shader = LoadShader(TextFormat("../data/shaders/lighting_instancing.vs", GLSL_VERSION),
@@ -57,7 +84,8 @@ int main() {
     camera.fovy = 45.0f;
     camera.projection = CAMERA_PERSPECTIVE;
     
-    DisableCursor();    // Limit cursor to relative movement inside the window
+    // Don't disable cursor for GUI interaction
+    // DisableCursor();
     rlFrustum(100000.0f, 100000.0f, 100000.0f, 100000.0f, 100000.0f, 100000.0f);
     rlSetClipPlanes(0.1f, 10000.0f);
 
@@ -75,12 +103,22 @@ int main() {
     model.materials[0] = material;
 
     TruncatedOctahedraManager octaManager(model, material);
-    // The TruncatedOctahedraManager now creates its own BoundaryManager internally
+    auto boundaryManager = octaManager.getBoundaryManager();
 
     const float LIGHT_ROTATION_SPEED = 0.5f;
 
+    // Time tracking variables
+    bool simulationRunning = false;
+    float simulationProgress = 0.0f;
+    bool freeCameraMode = false;
+
+    // Initialize GUI values based on initial boundary size
+    float worldToMm = 1.0f / MM_TO_WORLD_SCALE;
+    guiState.lengthValue = static_cast<int>(boundaryManager->getBoundaryWidth() * worldToMm);
+    guiState.widthValue = static_cast<int>(boundaryManager->getBoundaryDepth() * worldToMm);
+    guiState.layerSpinnerValue = octaManager.getOctahedraLayers();
+
     SetTargetFPS(60);
-    bool generationActive = false;
     while (!WindowShouldClose()) {
         const float deltaTime = GetFrameTime();
 
@@ -106,124 +144,191 @@ int main() {
             lightHeight,
             -lightRadius * sinf(rotationAngle - PI / 2)
         };
-        
-        // Handle boundary resizing with arrow keys before simulation starts
-        if (!octaManager.isGenerationActive()) {
-            octaManager.handleBoundaryResizing();
 
-            if (IsKeyPressed(KEY_EQUAL) || IsKeyPressed(KEY_KP_ADD)) {
-                octaManager.setOctahedraSpacing(octaManager.getOctahedraSpacing() + 5.0f);
+        // Only allow changes when simulation is not running
+        if (!simulationRunning) {
+            static int lastLengthValue = guiState.lengthValue;
+            static int lastWidthValue = guiState.widthValue;
+            static int lastLayerValue = guiState.layerSpinnerValue;
+            static int lastCellSplitValue = guiState.cellSplitSpinnerValue;
+            static int lastSimTimeValue = guiState.simulationTimeSpinnerValue;
+            static int lastCompletedAtValue = guiState.completedAtSpinnerValue;
+            float newWidth = guiState.lengthValue * MM_TO_WORLD_SCALE;
+            float newDepth = guiState.widthValue * MM_TO_WORLD_SCALE;
+            float octahedronHeight = OCTAHEDRON_REAL_SIZE_MM * MM_TO_WORLD_SCALE;
+            float newHeight = 2.0f * octahedronHeight * guiState.layerSpinnerValue;
+
+            bool sizeChanged = false;
+            if (newWidth != boundaryManager->getBoundaryWidth()) {
+                boundaryManager->setBoundaryWidth(newWidth);
+                sizeChanged = true;
             }
-            
-            if (IsKeyPressed(KEY_MINUS) || IsKeyPressed(KEY_KP_SUBTRACT)) {
-                octaManager.setOctahedraSpacing(std::max(5.0f, octaManager.getOctahedraSpacing() - 5.0f));
+            if (newDepth != boundaryManager->getBoundaryDepth()) {
+                boundaryManager->setBoundaryDepth(newDepth);
+                sizeChanged = true;
+            }
+            if (newHeight != boundaryManager->getBoundaryHeight()) {
+                boundaryManager->setBoundaryHeight(newHeight);
+                sizeChanged = true;
             }
 
-            if (IsKeyPressed(KEY_LEFT_BRACKET)) {
-                octaManager.setOctahedraLayers(std::max(1, octaManager.getOctahedraLayers() - 1));
+            if (guiState.layerSpinnerValue != octaManager.getOctahedraLayers()) {
+                octaManager.setOctahedraLayers(guiState.layerSpinnerValue);
+                sizeChanged = true;
             }
-            
-            if (IsKeyPressed(KEY_RIGHT_BRACKET)) {
-                octaManager.setOctahedraLayers(octaManager.getOctahedraLayers() + 1);
+
+            if (sizeChanged) {
+                octaManager.generateStartingPositions();
+            }
+
+            //leave always visible for now
+            //boundaryManager->setBoundaryVisible(guiState.debugCheckBoxChecked);
+
+            bool paramsChanged = 
+                lastLengthValue != guiState.lengthValue ||
+                lastWidthValue != guiState.widthValue ||
+                lastLayerValue != guiState.layerSpinnerValue ||
+                lastCellSplitValue != guiState.cellSplitSpinnerValue ||
+                lastSimTimeValue != guiState.simulationTimeSpinnerValue ||
+                lastCompletedAtValue != guiState.completedAtSpinnerValue;
+
+            if (paramsChanged || sizeChanged) {
+                float spawnChance = octaManager.getSpawnChance();
+                float spacing = calculateOptimalSpacing(
+                    static_cast<float>(guiState.simulationTimeSpinnerValue),
+                    static_cast<float>(guiState.cellSplitSpinnerValue),
+                    static_cast<float>(guiState.completedAtSpinnerValue) / 100.0f,
+                    spawnChance
+                );
+
+                octaManager.setOctahedraSpacing(spacing);
+                lastLengthValue = guiState.lengthValue;
+                lastWidthValue = guiState.widthValue;
+                lastLayerValue = guiState.layerSpinnerValue;
+                lastCellSplitValue = guiState.cellSplitSpinnerValue;
+                lastSimTimeValue = guiState.simulationTimeSpinnerValue;
+                lastCompletedAtValue = guiState.completedAtSpinnerValue;
             }
         }
+        
+        // Start button pressed
+        if (GuiButton(guiState.layoutRecs[3], "Start") && !simulationRunning) {
+            simulationRunning = true;
+            simulationProgress = 0.0f;
+            float spawnChance = octaManager.getSpawnChance();
+            float spacing = calculateOptimalSpacing(
+                static_cast<float>(guiState.simulationTimeSpinnerValue),
+                static_cast<float>(guiState.cellSplitSpinnerValue),
+                static_cast<float>(guiState.completedAtSpinnerValue) / 100.0f,
+                spawnChance
+            );
 
-        // Toggle cell generation thread
-        if (IsKeyPressed(KEY_SPACE)) {
+            octaManager.setOctahedraSpacing(spacing);
+            auto simulationTickCallback = [&]() {
+                size_t cellCount = octaManager.getCount();
+                float boundaryVolume = boundaryManager->getBoundaryWidth() * 
+                                      boundaryManager->getBoundaryDepth() * 
+                                      boundaryManager->getBoundaryHeight();
+                
+                float cellVolume = OCTAHEDRON_WORLD_SIZE * OCTAHEDRON_WORLD_SIZE * OCTAHEDRON_WORLD_SIZE;
+                float maxPossibleCells = boundaryVolume / cellVolume;
+                size_t targetCellCount = maxPossibleCells * (guiState.completedAtSpinnerValue / 100.0f);
+                if (targetCellCount > 0) {
+                    simulationProgress = (static_cast<float>(cellCount) / (static_cast<float>(targetCellCount) * 2))
+                                         * (static_cast<float>(guiState.simulationTimeSpinnerValue) / 100.0f);
+                    simulationProgress = std::min(simulationProgress, 1.0f);
+                    guiState.progressBarValue = simulationProgress;
+                    if (simulationProgress >= 1.0f && simulationRunning) {
+                        simulationRunning = false;
+                        octaManager.stopGenerationThread();
+                        strcpy(guiState.progressLabelText, "Progress: Complete!");
+                    }
+                }
+            };
+
+            octaManager.startGenerationThread(simulationTickCallback);
+        }
+        
+        // Reset button pressed
+        if (GuiButton(guiState.layoutRecs[2], "Reset")) {
+            simulationRunning = false;
+            simulationProgress = 0.0f;
+            guiState.progressBarValue = 0.0f;
+            strcpy(guiState.progressLabelText, "Progress: Not Started");
             if (octaManager.isGenerationActive()) {
                 octaManager.stopGenerationThread();
+            }
+            octaManager.resetOctahedra();
+        }
+
+        // Toggle free camera mode with Tab key
+        if (IsKeyPressed(KEY_TAB)) {
+            freeCameraMode = !freeCameraMode;
+            if (freeCameraMode) {
+                DisableCursor();
+                SetMousePosition(0, 0);
             } else {
-                octaManager.startGenerationThread();
+                EnableCursor();
             }
         }
 
-        if (octaManager.isGenerationActive()) {
-            octaManager.applyPendingChanges();
-        }
-
-        if (IsKeyPressed(KEY_V)) {
-            octaManager.updateVisibility();
-        }
-
-        if (IsKeyPressed(KEY_B)) {
-            octaManager.toggleBoundaryVisibility();
-        }
-
-        if (IsKeyPressed(KEY_E)) {
-            octaManager.toggleBoundaryEnabled();
-        }
-
-        // Update camera with free mode
-        UpdateCamera(&camera, CAMERA_FREE);
-        
-        // WASD movement for camera position
-        const float moveSpeed = 100.0f * deltaTime;
-        if (IsKeyDown(KEY_W)) {
-            Vector3 forward = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
-            camera.position = Vector3Add(camera.position, Vector3Scale(forward, moveSpeed));
-            camera.target = Vector3Add(camera.target, Vector3Scale(forward, moveSpeed));
-        }
-        if (IsKeyDown(KEY_S)) {
-            Vector3 backward = Vector3Normalize(Vector3Subtract(camera.position, camera.target));
-            camera.position = Vector3Add(camera.position, Vector3Scale(backward, moveSpeed));
-            camera.target = Vector3Add(camera.target, Vector3Scale(backward, moveSpeed));
-        }
-        if (IsKeyDown(KEY_A)) {
-            Vector3 right = Vector3CrossProduct(Vector3Subtract(camera.target, camera.position), camera.up);
-            right = Vector3Normalize(right);
-            camera.position = Vector3Subtract(camera.position, Vector3Scale(right, moveSpeed));
-            camera.target = Vector3Subtract(camera.target, Vector3Scale(right, moveSpeed));
-        }
-        if (IsKeyDown(KEY_D)) {
-            Vector3 right = Vector3CrossProduct(Vector3Subtract(camera.target, camera.position), camera.up);
-            right = Vector3Normalize(right);
-            camera.position = Vector3Add(camera.position, Vector3Scale(right, moveSpeed));
-            camera.target = Vector3Add(camera.target, Vector3Scale(right, moveSpeed));
+        // Update camera only in free mode
+        if (freeCameraMode) {
+            UpdateCamera(&camera, CAMERA_FREE);
+            const float moveSpeed = 100.0f * deltaTime;
+            if (IsKeyDown(KEY_SPACE)) {
+                camera.target = Vector3{200.0f, 120.0f, 200.0f};
+            }
+            if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP)) {
+                Vector3 forward = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+                camera.position = Vector3Add(camera.position, Vector3Scale(forward, moveSpeed));
+                camera.target = Vector3Add(camera.target, Vector3Scale(forward, moveSpeed));
+            }
+            if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN)) {
+                Vector3 backward = Vector3Normalize(Vector3Subtract(camera.position, camera.target));
+                camera.position = Vector3Add(camera.position, Vector3Scale(backward, moveSpeed));
+                camera.target = Vector3Add(camera.target, Vector3Scale(backward, moveSpeed));
+            }
+            if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT)) {
+                Vector3 right = Vector3CrossProduct(Vector3Subtract(camera.target, camera.position), camera.up);
+                right = Vector3Normalize(right);
+                camera.position = Vector3Subtract(camera.position, Vector3Scale(right, moveSpeed));
+                camera.target = Vector3Subtract(camera.target, Vector3Scale(right, moveSpeed));
+            }
+            if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) {
+                Vector3 right = Vector3CrossProduct(Vector3Subtract(camera.target, camera.position), camera.up);
+                right = Vector3Normalize(right);
+                camera.position = Vector3Add(camera.position, Vector3Scale(right, moveSpeed));
+                camera.target = Vector3Add(camera.target, Vector3Scale(right, moveSpeed));
+            }
         }
 
         const float cameraPos[3] = {camera.position.x, camera.position.y, camera.position.z};
         SetShaderValue(shader, shader.locs[SHADER_LOC_VECTOR_VIEW], cameraPos, SHADER_UNIFORM_VEC3);
-
         for (const auto &light: lights) UpdateLightValues(shader, light);
 
         BeginDrawing(); {
-            ClearBackground(GRAY);
+            ClearBackground(DARKGRAY);
+
             BeginMode3D(camera); {
                 octaManager.draw();
             }
             EndMode3D();
 
-            DrawFPS(10, 10);
+            DrawStemCellGUI(&guiState);
 
-            if (octaManager.isGenerationActive() || octaManager.getCount() > 0) {
-                DrawText(TextFormat("Octahedra: %zu", octaManager.getCount()), 10, 30, 20, BLACK);
+            if (freeCameraMode) {
+                DrawText("Camera Mode: FREE (Press TAB to return to GUI Mode)", 
+                         GetScreenWidth() - 480, 10, 16, RAYWHITE);
             } else {
-                DrawText(TextFormat("Octahedra preview: %zu", octaManager.getStartingPositionCount()), 10, 30, 20, BLACK);
+                DrawText("Press TAB for free camera mode", 
+                         GetScreenWidth() - 300, 10, 16, RAYWHITE);
             }
 
-            if (octaManager.isGenerationActive()) {
-                DrawText("Generating new octahedra (background)...", 10, 70, 20, GREEN);
-            } else {
-                DrawText("Press SPACE to toggle generation", 10, 70, 20, DARKGRAY);
-            }
-
-            // Show boundary constraint status
-            const char *boundaryStatus = octaManager.isBoundaryEnabled() ? "ENABLED" : "DISABLED";
-            DrawText(TextFormat("Boundary constraint: %s", boundaryStatus),
-                     10, 90, 20, octaManager.isBoundaryEnabled() ? GREEN : GRAY);
-            DrawText("Press R to reset entire simulation", 10, GetScreenHeight() - 140, 18, DARKGRAY);
-            DrawText("Press V to update visibility calculations", 10, GetScreenHeight() - 100, 18, DARKGRAY);
-            DrawText("Press B to toggle boundary visibility", 10, GetScreenHeight() - 80, 18, DARKGRAY);
-            DrawText("Press E to toggle boundary constraint", 10, GetScreenHeight() - 40, 18, DARKGRAY);
-            
-            // Show resize controls only when simulation is not running
-            if (!octaManager.isGenerationActive()) {
-                DrawText("Use ARROW KEYS to resize boundary before starting simulation", 10, GetScreenHeight() - 60, 18, GREEN);
-                DrawText(TextFormat("Octahedra spacing: %.1f (Use +/- keys to adjust)", octaManager.getOctahedraSpacing()), 
-                         10, GetScreenHeight() - 40, 18, GREEN);
-                DrawText(TextFormat("Octahedra layers: %d (Use [/] keys to adjust)", octaManager.getOctahedraLayers()),
-                         10, GetScreenHeight() - 20, 18, GREEN);
-            }
+            DrawText(TextFormat("Cells: %zu", octaManager.getCount() * 15), //each octahedron has is 15 cells
+                     GetScreenWidth() - 170, 40, 20, RAYWHITE);
+            DrawText(TextFormat("Octahedra: %zu", octaManager.getCount()),
+                     GetScreenWidth() - 170, 70, 20, RAYWHITE);
         }
         EndDrawing();
     }

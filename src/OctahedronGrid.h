@@ -23,7 +23,7 @@ public:
         int hexagonFaces = 0;
     };
 
-    explicit OctahedronGrid(const size_t length = 500, const size_t width = 500, const size_t height = 500)
+    explicit OctahedronGrid(const size_t length = 50, const size_t width = 50, const size_t height = 50)
         : gridLength(length), gridWidth(width), gridHeight(height) {
         resizeGrid(length, width, height);
     }
@@ -71,10 +71,10 @@ public:
         std::array<std::tuple<int, int, int>, 6> squareDirs = {
             std::make_tuple(x - 1, y, z),
             std::make_tuple(x + 1, y, z),
-            std::make_tuple(x, y - 1, z),
-            std::make_tuple(x, y + 1, z),
             std::make_tuple(x, y, z - 1),
-            std::make_tuple(x, y, z + 1)
+            std::make_tuple(x, y, z + 1),
+            std::make_tuple(x, y - 1, z),
+            std::make_tuple(x, y + 1, z)
         };
 
         for (const auto &[nx, ny, nz]: squareDirs) {
@@ -88,14 +88,14 @@ public:
 
         // 8 hexagonal face neighbors with offset for top and bottom layers
         std::array<std::tuple<int, int, int>, 8> hexDirs = {
-            std::make_tuple(x - 1, y - 1, z + 1),
-            std::make_tuple(x, y - 1, z + 1),
-            std::make_tuple(x, y, z + 1),
-            std::make_tuple(x - 1, y, z + 1),
+            std::make_tuple(x - 1, y + 1, z - 1),
+            std::make_tuple(x, y + 1, z - 1),
+            std::make_tuple(x, y + 1, z),
+            std::make_tuple(x - 1, y + 1, z),
             std::make_tuple(x - 1, y - 1, z - 1),
             std::make_tuple(x, y - 1, z - 1),
-            std::make_tuple(x, y, z - 1),
-            std::make_tuple(x - 1, y, z - 1)
+            std::make_tuple(x, y - 1, z),
+            std::make_tuple(x - 1, y - 1, z)
         };
 
         for (const auto &[nx, ny, nz]: hexDirs) {
@@ -146,9 +146,22 @@ public:
 
     [[nodiscard]] static Vector3 snapToGridPosition(const Vector3 &position) {
         constexpr float halfSquareDist = SQUARE_DISTANCE * 0.5f;
-        const float snappedX = roundf(position.x / halfSquareDist) * halfSquareDist;
         const float snappedY = roundf(position.y / halfSquareDist) * halfSquareDist;
+
+        const float snappedX = roundf(position.x / halfSquareDist) * halfSquareDist;
         const float snappedZ = roundf(position.z / halfSquareDist) * halfSquareDist;
+
+        /*const float distanceFromSquare = std::abs(snappedY - SQUARE_DISTANCE);
+        const float distanceFromHalfSquare = std::abs(snappedY - halfSquareDist);
+        const bool closerToWholeSquare = distanceFromSquare < distanceFromHalfSquare;
+        float snappedX, snappedZ;
+        if (!closerToWholeSquare) {
+            snappedX = roundf(position.x / halfSquareDist) * halfSquareDist;
+            snappedZ = roundf(position.z / halfSquareDist) * halfSquareDist;
+        } else {
+            snappedX = roundf(position.x / SQUARE_DISTANCE) * SQUARE_DISTANCE;
+            snappedZ = roundf(position.z / SQUARE_DISTANCE) * SQUARE_DISTANCE;
+        }*/
 
         return {snappedX, snappedY, snappedZ};
     }
@@ -166,41 +179,41 @@ private:
         auto [x, y, z] = positionToCoordinates(pos);
         if (!isValidCoordinate(x, y, z)) return SIZE_MAX;
 
-        // Using the formula: (Z_n*X*Y) + (Y_n*X) + (X_n) = n
-        return (z * gridLength * gridWidth) + (y * gridLength) + x;
+        // Using the formula: (Y_n*X*Z) + (Z_n*X) + (X_n) = n
+        return (y * gridLength * gridWidth) + (z * gridLength) + x;
     }
 
     [[nodiscard]] static std::tuple<int, int, int> positionToCoordinates(const Vector3 &pos) {
         constexpr float halfSquareDist = SQUARE_DISTANCE;
-        constexpr float zScaleFactor = 2.0f; // Inverse of the 0.5 scale factor
+        constexpr float yScaleFactor = 2.0f; // Inverse of the 0.5 scale factor
 
-        int z = static_cast<int>(roundf(pos.z / halfSquareDist * zScaleFactor));
+        int y = static_cast<int>(roundf(pos.y / halfSquareDist * yScaleFactor));
         float adjustedX = pos.x;
-        float adjustedY = pos.y;
+        float adjustedZ = pos.z;
 
-        if (z % 2 != 0) {
+        if (y % 2 != 0) {
             adjustedX -= halfSquareDist * 0.5f;
-            adjustedY -= halfSquareDist * 0.5f;
+            adjustedZ -= halfSquareDist * 0.5f;
         }
 
         int x = static_cast<int>(roundf(adjustedX / halfSquareDist));
-        int y = static_cast<int>(roundf(adjustedY / halfSquareDist));
+        int z = static_cast<int>(roundf(adjustedZ / halfSquareDist));
 
         return {x, y, z};
     }
 
     [[nodiscard]] static Vector3 coordinatesToPosition(const int x, const int y, const int z) {
         constexpr float halfSquareDist = SQUARE_DISTANCE;
-        constexpr float zScaleFactor = 0.5f;
+        constexpr float yScaleFactor = 0.5f;
 
         float worldX = static_cast<float>(x) * halfSquareDist;
-        float worldY = static_cast<float>(y) * halfSquareDist;
-        const float worldZ = static_cast<float>(z) * halfSquareDist * zScaleFactor;
+        float worldZ = static_cast<float>(z) * halfSquareDist;
+        const float worldY = static_cast<float>(y) * halfSquareDist * yScaleFactor;
 
         // For octahedral geometry, adjust for the half-unit offset between layers
-        if (z % 2 != 0) {
+        if (y % 2 != 0) {
             worldX += halfSquareDist * 0.5f;
-            worldY += halfSquareDist * 0.5f;
+            worldZ += halfSquareDist * 0.5f;
         }
 
         return {worldX, worldY, worldZ};
@@ -208,7 +221,7 @@ private:
 
     [[nodiscard]] bool isValidCoordinate(const int x, const int y, const int z) const {
         return x >= 0 && x < static_cast<int>(gridLength) &&
-               y >= 0 && y < static_cast<int>(gridWidth) &&
-               z >= 0 && z < static_cast<int>(gridHeight);
+               y >= 0 && y < static_cast<int>(gridHeight) &&
+               z >= 0 && z < static_cast<int>(gridWidth);
     }
 };

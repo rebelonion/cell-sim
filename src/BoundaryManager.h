@@ -118,6 +118,43 @@ public:
     void setColor(const Color &color) {
         boundaryColor = color;
     }
+    
+    void setBoundaryVisible(const bool visible) {
+        showBoundary = visible;
+    }
+    
+    void setBoundaryWidth(const float width) {
+        if (boundary && boundary->canResize()) {
+            boundary = std::make_shared<RectangleBoundary>(
+                boundary->getCenter(),
+                width,
+                boundary->getDepth(),
+                boundary->getHeight()
+            );
+        }
+    }
+    
+    void setBoundaryDepth(const float depth) {
+        if (boundary && boundary->canResize()) {
+            boundary = std::make_shared<RectangleBoundary>(
+                boundary->getCenter(),
+                boundary->getWidth(),
+                depth,
+                boundary->getHeight()
+            );
+        }
+    }
+    
+    void setBoundaryHeight(const float height) {
+        if (boundary && boundary->canResize()) {
+            boundary = std::make_shared<RectangleBoundary>(
+                boundary->getCenter(),
+                boundary->getWidth(),
+                boundary->getDepth(),
+                height
+            );
+        }
+    }
 
     void handleResizing() const {
         if (!boundary || !boundary->canResize()) return;
