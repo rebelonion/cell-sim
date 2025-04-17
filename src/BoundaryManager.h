@@ -72,8 +72,8 @@ class BoundaryManager {
 public:
     BoundaryManager()
         : showBoundary(true), boundaryEnabled(true), boundaryColor(RED) {
-        float width = 300.0f;
-        float depth = 300.0f;
+        float width = 700.0f;
+        float depth = 700.0f;
         float height = 50.0f;
 
         Vector3 cornerCenter = {

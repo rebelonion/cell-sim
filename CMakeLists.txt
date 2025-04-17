@@ -37,11 +37,13 @@ if (NOT TBB_FOUND)
 endif ()
 
 set(RAYLIB_VERSION 5.5)
-set(PLATFORM "SDL" CACHE STRING "Platform for raylib")
 if (UNIX AND NOT APPLE)
     set(GLFW_BUILD_WAYLAND ON CACHE BOOL "" FORCE)
     set(GLFW_BUILD_X11 ON CACHE BOOL "" FORCE)
-endif ()
+    set(PLATFORM "SDL" CACHE STRING "Platform for raylib")
+else()
+    set(PLATFORM "Desktop" CACHE STRING "Platform for raylib")
+endif()
 
 FetchContent_Declare(
         raylib
@@ -81,7 +83,9 @@ set_property(TARGET ${PROJECT_NAME} PROPERTY VS_DEBUGGER_WORKING_DIRECTORY $<TAR
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/data DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
 #set(raylib_VERBOSE 1)
-target_compile_options(tbb PRIVATE -Wno-stringop-overflow)
+if (UNIX)
+    target_compile_options(tbb PRIVATE -Wno-stringop-overflow)
+endif ()
 target_link_libraries(${PROJECT_NAME}
         raylib
         TBB::tbb

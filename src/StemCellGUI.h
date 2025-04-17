@@ -67,7 +67,7 @@ StemCellGUIState InitStemCellGUI(void)
     state.layerSpinnerEditMode = false;
     state.layerSpinnerValue = 1;
     state.cellSplitSpinnerEditMode = false;
-    state.cellSplitSpinnerValue = 24;  // Default: 24 hours
+    state.cellSplitSpinnerValue = 8;  // Default: 8 hours
     state.progressBarValue = 0.0f;
     state.debugCheckBoxChecked = false;
     state.simulationTimeSpinnerEditMode = false;

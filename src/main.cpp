@@ -111,6 +111,7 @@ int main() {
     bool simulationRunning = false;
     float simulationProgress = 0.0f;
     bool freeCameraMode = false;
+    int hourCount = 0;
 
     // Initialize GUI values based on initial boundary size
     float worldToMm = 1.0f / MM_TO_WORLD_SCALE;
@@ -156,7 +157,7 @@ int main() {
             float newWidth = guiState.lengthValue * MM_TO_WORLD_SCALE;
             float newDepth = guiState.widthValue * MM_TO_WORLD_SCALE;
             float octahedronHeight = OCTAHEDRON_REAL_SIZE_MM * MM_TO_WORLD_SCALE;
-            float newHeight = 2.0f * octahedronHeight * guiState.layerSpinnerValue;
+            float newHeight = 3.0f * octahedronHeight * guiState.layerSpinnerValue;
 
             bool sizeChanged = false;
             if (newWidth != boundaryManager->getBoundaryWidth()) {
@@ -184,7 +185,7 @@ int main() {
             //leave always visible for now
             //boundaryManager->setBoundaryVisible(guiState.debugCheckBoxChecked);
 
-            bool paramsChanged = 
+            bool paramsChanged =
                 lastLengthValue != guiState.lengthValue ||
                 lastWidthValue != guiState.widthValue ||
                 lastLayerValue != guiState.layerSpinnerValue ||
@@ -210,7 +211,7 @@ int main() {
                 lastCompletedAtValue = guiState.completedAtSpinnerValue;
             }
         }
-        
+
         // Start button pressed
         if (GuiButton(guiState.layoutRecs[3], "Start") && !simulationRunning) {
             simulationRunning = true;
@@ -225,11 +226,13 @@ int main() {
 
             octaManager.setOctahedraSpacing(spacing);
             auto simulationTickCallback = [&]() {
+                hourCount += guiState.cellSplitSpinnerValue;
+                strcpy(guiState.progressLabelText, ("Progress: hour " + std::to_string(hourCount)).c_str());
                 size_t cellCount = octaManager.getCount();
-                float boundaryVolume = boundaryManager->getBoundaryWidth() * 
-                                      boundaryManager->getBoundaryDepth() * 
+                float boundaryVolume = boundaryManager->getBoundaryWidth() *
+                                      boundaryManager->getBoundaryDepth() *
                                       boundaryManager->getBoundaryHeight();
-                
+
                 float cellVolume = OCTAHEDRON_WORLD_SIZE * OCTAHEDRON_WORLD_SIZE * OCTAHEDRON_WORLD_SIZE;
                 float maxPossibleCells = boundaryVolume / cellVolume;
                 size_t targetCellCount = maxPossibleCells * (guiState.completedAtSpinnerValue / 100.0f);
@@ -241,18 +244,19 @@ int main() {
                     if (simulationProgress >= 1.0f && simulationRunning) {
                         simulationRunning = false;
                         octaManager.stopGenerationThread();
-                        strcpy(guiState.progressLabelText, "Progress: Complete!");
+                        //strcpy(guiState.progressLabelText, "Progress: Complete!");
                     }
                 }
             };
 
             octaManager.startGenerationThread(simulationTickCallback);
         }
-        
+
         // Reset button pressed
         if (GuiButton(guiState.layoutRecs[2], "Reset")) {
             simulationRunning = false;
             simulationProgress = 0.0f;
+            hourCount = 0;
             guiState.progressBarValue = 0.0f;
             strcpy(guiState.progressLabelText, "Progress: Not Started");
             if (octaManager.isGenerationActive()) {
@@ -325,10 +329,10 @@ int main() {
                          GetScreenWidth() - 300, 10, 16, RAYWHITE);
             }
 
-            DrawText(TextFormat("Cells: %zu", octaManager.getCount() * 15), //each octahedron has is 15 cells
-                     GetScreenWidth() - 170, 40, 20, RAYWHITE);
+            DrawText(TextFormat("Cells: %zu", octaManager.getCount() * 26), //each octahedron has is 15 cells
+                     GetScreenWidth() - 200, 40, 20, RAYWHITE);
             DrawText(TextFormat("Octahedra: %zu", octaManager.getCount()),
-                     GetScreenWidth() - 170, 70, 20, RAYWHITE);
+                     GetScreenWidth() - 200, 70, 20, RAYWHITE);
         }
         EndDrawing();
     }

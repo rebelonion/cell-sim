@@ -117,6 +117,7 @@ public:
             const Vector3 centerPos = {center.x, center.y, center.z};
             startingPositions.push_back(OctahedronGrid::snapToGridPosition(centerPos));
         }
+        std::cout << "Generated " << startingPositions.size() << " starting positions." << std::endl;
     }
 
     // Create octahedra based on the precomputed starting positions
@@ -430,7 +431,7 @@ public:
         if (!newPositions.empty()) {
             updateVisibilityForNewCells(newPositions);
         }
-        if (tick) {
+        if (tick && !newPositions.empty()) {
             tick();
         }
     }
@@ -493,7 +494,7 @@ public:
 
 private:
     void generationThreadFunc(const std::function<void()> &tick) {
-        constexpr float minimumTickInterval = 0.1f;
+        constexpr float minimumTickInterval = 0.01f;
         while (!shouldStopThread) {
             auto start = std::chrono::high_resolution_clock::now();
             trySpawningNewOctahedra(tick);
@@ -523,7 +524,7 @@ private:
     std::shared_ptr<BoundaryManager> boundaryManager;
 
     bool gridInitialized;
-    float spawnChance = 0.1f; // Default spawn chance
+    float spawnChance = 1.0f; // Default spawn chance
     float octahedraSpacing;
     int octahedraLayers;
     std::vector<Vector3> startingPositions;
